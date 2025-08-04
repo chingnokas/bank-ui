@@ -112,9 +112,11 @@ const ChatBot = () => {
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b bg-emerald-500 text-white rounded-t-lg">
           <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-emerald-600 rounded-full flex items-center justify-center">
-              <span className="text-sm font-bold">K</span>
-            </div>
+            <img
+              src="https://customer-assets.emergentagent.com/job_krotoa-banking/artifacts/t5cl3oo4_CHAT.jpeg"
+              alt="Krotoa Avatar"
+              className="w-10 h-10 rounded-full border-2 border-emerald-300"
+            />
             <div>
               <div className="font-semibold">Krotoa</div>
               <div className="text-xs text-emerald-100">Your Banking Assistant</div>
