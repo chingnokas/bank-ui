@@ -10,12 +10,12 @@ const Footer = () => {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
           {/* Brand & About */}
           <div className="space-y-4">
-            <div className="flex items-center space-x-2">
-              <div className="bg-emerald-500 rounded-lg p-2">
-                <div className="w-8 h-8 bg-white rounded text-emerald-500 flex items-center justify-center font-bold text-xl">
-                  P
-                </div>
-              </div>
+            <div className="flex items-center space-x-3">
+              <img 
+                src="https://customer-assets.emergentagent.com/job_krotoa-banking/artifacts/1jgqb0uw_logob.jpeg" 
+                alt="Peoples Bank Logo"
+                className="w-12 h-12 rounded-full bg-white p-1 shadow-md"
+              />
               <div className="text-xl font-bold">
                 Peoples <span className="text-emerald-400">Bank</span>
               </div>
