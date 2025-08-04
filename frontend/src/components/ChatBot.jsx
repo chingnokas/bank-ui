@@ -10,7 +10,7 @@ const ChatBot = () => {
   const [messages, setMessages] = useState([
     {
       id: 1,
-      text: "Sawubona! I'm Krotoa, your friendly Peoples Bank assistant. How can I help you today?",
+      text: "Gâi tsēs! I'm Krotoa, your friendly Peoples Bank assistant. How can I help you today?",
       isBot: true,
       timestamp: new Date()
     }
