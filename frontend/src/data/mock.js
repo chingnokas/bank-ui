@@ -91,7 +91,7 @@ export const mockTransactions = [
 export const krotoachatbotResponses = {
   greeting: [
     "Gâi tsēs! I'm Krotoa, your friendly banking assistant. How can I help you today?",
-    "Sawubona! I'm Krotoa, here to assist with your banking needs. What would you like to know?",
+    "Gâi tsēs! I'm Krotoa, here to assist with your banking needs. What would you like to know?",
     "Sanibonani! I'm Krotoa, ready to help you with your Peoples Bank account. How can I assist you?",
     "Hello and gâi tsēs! Welcome to Peoples Bank. I'm Krotoa, your personal banking assistant."
   ],
