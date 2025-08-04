@@ -90,34 +90,35 @@ export const mockTransactions = [
 
 export const krotoachatbotResponses = {
   greeting: [
-    "Sawubona! I'm Krotoa, your friendly banking assistant. How can I help you today?",
-    "Hello! I'm Krotoa, here to assist with your banking needs. What would you like to know?",
-    "Sanibonani! I'm Krotoa, ready to help you with your Peoples Bank account."
+    "Gâi tsēs! I'm Krotoa, your friendly banking assistant. How can I help you today?",
+    "Sawubona! I'm Krotoa, here to assist with your banking needs. What would you like to know?",
+    "Sanibonani! I'm Krotoa, ready to help you with your Peoples Bank account. How can I assist you?",
+    "Hello and gâi tsēs! Welcome to Peoples Bank. I'm Krotoa, your personal banking assistant."
   ],
   balance: [
-    `Your current account balance is R${mockAccounts[1].balance.toFixed(2)} and your savings balance is R${mockAccounts[0].balance.toFixed(2)}.`,
-    "I can see your accounts are doing well! Your current balance across all accounts looks healthy."
+    `Your current account balance is R${mockAccounts[1].balance.toFixed(2)} and your savings balance is R${mockAccounts[0].balance.toFixed(2)}. Looking good!`,
+    "I can see your accounts are doing well! Your current balance across all accounts looks healthy. Anything specific you'd like to know?"
   ],
   transactions: [
     "Your recent transactions include purchases at Woolworths, Uber rides, and your salary deposit. Would you like me to show you more details?",
-    "I can see your latest transactions. You've been quite active with everyday purchases and your salary came through recently."
+    "I can see your latest transactions. You've been quite active with everyday purchases and your salary came through recently. Need any details?"
   ],
   help: [
-    "I can help you with: checking balances, reviewing transactions, finding branches, customer support, and general banking questions. What interests you?",
-    "I'm here to assist with your banking needs! I can check balances, explain transactions, locate branches, or connect you with customer support."
+    "Gâi tsēs! I can help you with: checking balances, reviewing transactions, finding branches, customer support, and general banking questions. What interests you?",
+    "I'm here to assist with your banking needs! I can check balances, explain transactions, locate branches, or connect you with customer support. How can I help?"
   ],
   branches: [
-    "Peoples Bank has branches across South Africa. Our main branches are in Cape Town, Johannesburg, Durban, and Pretoria. Would you like specific branch details?",
-    "We have over 200 branches nationwide, plus ATMs at major shopping centers. Where are you located so I can find the nearest one?"
+    "Peoples Bank has branches across South Africa! Our main branches are in Cape Town, Johannesburg, Durban, and Pretoria. Would you like specific branch details or directions?",
+    "We have over 200 branches nationwide, plus ATMs at major shopping centers. Where are you located so I can find the nearest one for you?"
   ],
   support: [
-    "For additional support, you can call us at 0860 PEOPLES (0860 736 7537) or visit any branch. Our call center is available 24/7.",
-    "Our customer support team is available 24/7 at 0860 PEOPLES. You can also visit our branches or use this chat for quick questions."
+    "For additional support, you can call us at 0860 PEOPLES (0860 736 7537) or visit any branch. Our call center is available 24/7 with friendly staff ready to help!",
+    "Our customer support team is available 24/7 at 0860 PEOPLES. You can also visit our branches or continue chatting with me for quick questions. I'm here to help!"
   ],
   default: [
-    "I'm not sure about that, but I'd love to help! Try asking about your balance, recent transactions, or finding a branch.",
-    "That's a great question! I specialize in banking queries like balances, transactions, and branch locations. What would you like to know?",
-    "I'm still learning, but I can definitely help with banking basics! Ask me about your accounts, transactions, or how to contact support."
+    "Gâi tsēs! I'm not sure about that specific question, but I'd love to help! Try asking about your balance, recent transactions, or finding a branch.",
+    "That's a great question! I specialize in banking queries like balances, transactions, and branch locations. What banking topic can I help you with?",
+    "I'm still learning, but I can definitely help with banking basics! Ask me about your accounts, transactions, or how to contact our support team."
   ]
 };
 
