@@ -42,12 +42,12 @@ const Login = () => {
       <div className="max-w-md w-full space-y-8">
         {/* Header */}
         <div className="text-center">
-          <Link to="/" className="inline-flex items-center space-x-2 mb-8">
-            <div className="bg-emerald-500 rounded-lg p-2">
-              <div className="w-8 h-8 bg-white rounded text-emerald-500 flex items-center justify-center font-bold text-xl">
-                P
-              </div>
-            </div>
+          <Link to="/" className="inline-flex items-center space-x-3 mb-8">
+            <img 
+              src="https://customer-assets.emergentagent.com/job_krotoa-banking/artifacts/1jgqb0uw_logob.jpeg" 
+              alt="Peoples Bank Logo"
+              className="w-12 h-12 rounded-full bg-white p-1 shadow-md"
+            />
             <div className="text-2xl font-bold text-white">
               Peoples <span className="text-emerald-400">Bank</span>
             </div>
