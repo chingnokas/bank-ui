@@ -1,0 +1,266 @@
+name: Working Banking App Deployment
+
+on:
+  workflow_dispatch:  # Manual trigger
+  push:
+    branches: [working-deploy]
+
+jobs:
+  # Single job that does everything step by step
+  deploy-banking-app:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Prerequisites
+        run: |
+          echo "🔍 Checking prerequisites..."
+          if [ -z "${{ secrets.DIGITALOCEAN_TOKEN }}" ]; then
+            echo "❌ DIGITALOCEAN_TOKEN secret is missing"
+            echo ""
+            echo "🛠️ To fix this:"
+            echo "1. Go to: https://cloud.digitalocean.com/account/api/tokens"
+            echo "2. Create a new token with read/write permissions"
+            echo "3. Go to: https://github.com/${{ github.repository }}/settings/secrets/actions"
+            echo "4. Add secret: DIGITALOCEAN_TOKEN = your_token"
+            echo ""
+            exit 1
+          fi
+          echo "✅ DigitalOcean token is configured"
+
+      - name: Setup Tools
+        run: |
+          echo "🔧 Setting up tools..."
+          # OpenTofu will be installed by the action
+          # Docker Buildx will be set up later
+          echo "✅ Ready to proceed"
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: 1.6.0
+
+      - name: Configure DigitalOcean CLI
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_TOKEN }}
+
+      - name: Check Existing Infrastructure
+        id: check-infra
+        run: |
+          echo "🔍 Checking for existing infrastructure..."
+          
+          if doctl kubernetes cluster get banking-app-k8s &> /dev/null; then
+            echo "✅ Found existing cluster: banking-app-k8s"
+            echo "cluster-exists=true" >> $GITHUB_OUTPUT
+            
+            # Get cluster status
+            STATUS=$(doctl kubernetes cluster get banking-app-k8s --format Status --no-header)
+            echo "Cluster status: $STATUS"
+            
+            if [ "$STATUS" = "running" ]; then
+              echo "✅ Cluster is running"
+              echo "cluster-ready=true" >> $GITHUB_OUTPUT
+            else
+              echo "⚠️ Cluster exists but not running (status: $STATUS)"
+              echo "cluster-ready=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "❌ No existing cluster found"
+            echo "cluster-exists=false" >> $GITHUB_OUTPUT
+            echo "cluster-ready=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Infrastructure (if needed)
+        if: steps.check-infra.outputs.cluster-exists != 'true'
+        working-directory: ./infra
+        run: |
+          echo "🏗️ Creating new infrastructure..."
+          
+          # Use simple configuration
+          cp simple.tf main.tf
+          
+          echo "Initializing OpenTofu..."
+          tofu init
+          
+          echo "Planning infrastructure..."
+          tofu plan -var="do_token=${{ secrets.DIGITALOCEAN_TOKEN }}" \
+                    -var="cluster_name=banking-app-k8s" \
+                    -var="region=nyc1" \
+                    -var="node_count=2" \
+                    -out=tfplan
+          
+          echo "Creating infrastructure..."
+          tofu apply -auto-approve tfplan
+          
+          echo "✅ Infrastructure created successfully"
+
+      - name: Setup Kubernetes Access
+        run: |
+          echo "🔧 Setting up Kubernetes access..."
+          
+          # Get cluster credentials
+          doctl kubernetes cluster kubeconfig save banking-app-k8s
+          
+          # Wait for cluster to be ready
+          echo "⏳ Waiting for cluster nodes to be ready..."
+          kubectl wait --for=condition=Ready nodes --all --timeout=600s
+          
+          # Verify access
+          echo "🔍 Verifying cluster access..."
+          kubectl cluster-info
+          kubectl get nodes
+          
+          echo "✅ Kubernetes access configured"
+
+      - name: Deploy Base Infrastructure
+        run: |
+          echo "📁 Deploying base infrastructure..."
+          
+          # Create namespaces
+          kubectl apply -f k8s/namespace.yaml
+          
+          # Deploy secrets (without sensitive data)
+          kubectl apply -f k8s/secrets/banking-secrets.yaml
+          
+          # Deploy database
+          echo "🗄️ Deploying PostgreSQL..."
+          kubectl apply -f k8s/database/postgres.yaml
+          kubectl rollout status statefulset/postgres -n banking-app --timeout=300s
+          
+          echo "✅ Base infrastructure deployed"
+
+      - name: Build and Push Images
+        run: |
+          echo "🐳 Building and pushing Docker images..."
+          
+          # Set up Docker Buildx
+          docker buildx create --use
+          
+          # Login to GitHub Container Registry
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          
+          # Build and push frontend
+          echo "Building frontend..."
+          docker buildx build --platform linux/amd64 \
+            -t ghcr.io/chingnokas/cg-bank:latest \
+            --push frontend/
+          
+          # Build and push backend
+          echo "Building backend..."
+          docker buildx build --platform linux/amd64 \
+            -t ghcr.io/chingnokas/cg-backbank:latest \
+            --push backend/
+          
+          echo "✅ Images built and pushed"
+
+      - name: Create Registry Secret
+        run: |
+          echo "🔐 Creating registry secret..."
+          kubectl create secret docker-registry registry-credentials \
+            --docker-server=ghcr.io \
+            --docker-username=${{ github.actor }} \
+            --docker-password=${{ secrets.GITHUB_TOKEN }} \
+            --namespace=banking-app \
+            --dry-run=client -o yaml | kubectl apply -f -
+          echo "✅ Registry secret created"
+
+      - name: Deploy Applications
+        run: |
+          echo "🚀 Deploying applications..."
+          
+          # Deploy backend
+          echo "Deploying backend..."
+          kubectl apply -f k8s/backend/
+          kubectl rollout status deployment/banking-backend -n banking-app --timeout=300s
+          
+          # Deploy frontend
+          echo "Deploying frontend..."
+          kubectl apply -f k8s/frontend/
+          kubectl rollout status deployment/banking-frontend -n banking-app --timeout=300s
+          
+          echo "✅ Applications deployed"
+
+      - name: Deploy Monitoring (Optional)
+        continue-on-error: true
+        run: |
+          echo "📊 Deploying monitoring stack..."
+          
+          # Deploy Prometheus
+          kubectl apply -f k8s/monitoring/prometheus/
+          kubectl rollout status deployment/prometheus-server -n monitoring --timeout=300s
+          
+          # Deploy Grafana
+          kubectl apply -f k8s/monitoring/grafana/
+          kubectl rollout status deployment/grafana -n monitoring --timeout=300s
+          
+          echo "✅ Monitoring deployed"
+
+      - name: Get Service URLs
+        run: |
+          echo "⏳ Waiting for load balancers to be ready..."
+          sleep 60
+          
+          echo ""
+          echo "🎉 Banking Application Deployed Successfully!"
+          echo "============================================="
+          echo ""
+          
+          # Get service IPs
+          FRONTEND_IP=$(kubectl get svc banking-frontend -n banking-app -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "pending")
+          BACKEND_IP=$(kubectl get svc banking-backend -n banking-app -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "pending")
+          GRAFANA_IP=$(kubectl get svc grafana -n monitoring -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "pending")
+          PROMETHEUS_IP=$(kubectl get svc prometheus-server -n monitoring -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "pending")
+          
+          echo "🌐 Application URLs:"
+          echo "Frontend:   http://$FRONTEND_IP/"
+          echo "Backend:    http://$BACKEND_IP:8000/"
+          echo ""
+          echo "📊 Monitoring URLs:"
+          echo "Grafana:    http://$GRAFANA_IP:3000/ (admin/BankingGrafana2024!)"
+          echo "Prometheus: http://$PROMETHEUS_IP:9090/"
+          echo ""
+          echo "📊 Cluster Status:"
+          kubectl get all -n banking-app
+          echo ""
+          echo "🎯 Success! Your banking application is now live!"
+          echo ""
+          echo "💡 To access cluster locally:"
+          echo "doctl kubernetes cluster kubeconfig save banking-app-k8s"
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "📋 Deployment Summary"
+          echo "===================="
+          echo ""
+          if kubectl get deployment banking-frontend -n banking-app &> /dev/null; then
+            echo "✅ Frontend: Deployed"
+          else
+            echo "❌ Frontend: Failed"
+          fi
+          
+          if kubectl get deployment banking-backend -n banking-app &> /dev/null; then
+            echo "✅ Backend: Deployed"
+          else
+            echo "❌ Backend: Failed"
+          fi
+          
+          if kubectl get statefulset postgres -n banking-app &> /dev/null; then
+            echo "✅ Database: Deployed"
+          else
+            echo "❌ Database: Failed"
+          fi
+          
+          if kubectl get deployment prometheus-server -n monitoring &> /dev/null; then
+            echo "✅ Monitoring: Deployed"
+          else
+            echo "⚠️ Monitoring: Skipped or Failed"
+          fi
+          
+          echo ""
+          echo "🔗 Next steps:"
+          echo "1. Test your application using the URLs above"
+          echo "2. Set up custom domain (optional)"
+          echo "3. Configure SSL certificates (optional)"
+          echo "4. Set up backup procedures"

@@ -125,33 +125,65 @@ jobs:
   verify-infrastructure:
     runs-on: ubuntu-latest
     needs: [detect-changes, provision-infrastructure]
-    if: always() && (needs.provision-infrastructure.result == 'success' || needs.detect-changes.outputs.infrastructure == 'false')
+    if: needs.provision-infrastructure.result == 'success'
     steps:
+      - name: Configure DigitalOcean CLI
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_TOKEN }}
+
       - name: Configure kubectl
         run: |
-          mkdir -p ~/.kube
-          if [ -n "${{ needs.provision-infrastructure.outputs.kubeconfig-data }}" ]; then
-            # Use kubeconfig from infrastructure job
-            echo "${{ needs.provision-infrastructure.outputs.kubeconfig-data }}" | base64 -d > ~/.kube/config
-          elif [ -n "${{ secrets.KUBE_CONFIG_DATA }}" ]; then
-            # Fallback to existing secret
-            echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 -d > ~/.kube/config
-          else
-            echo "❌ No kubeconfig available"
-            exit 1
-          fi
+          # Get fresh kubeconfig from DigitalOcean
+          doctl kubernetes cluster kubeconfig save banking-app-k8s
 
-      - name: Verify cluster connectivity
-        run: |
+          # Verify cluster connectivity
           kubectl cluster-info
           kubectl get nodes
           echo "✅ Cluster is ready and accessible"
 
+  # Handle case when infrastructure provisioning is skipped or fails
+  check-existing-infrastructure:
+    runs-on: ubuntu-latest
+    needs: [detect-changes, provision-infrastructure]
+    if: needs.detect-changes.outputs.infrastructure == 'false' && needs.provision-infrastructure.result != 'success'
+    outputs:
+      cluster-exists: ${{ steps.check.outputs.exists }}
+    steps:
+      - name: Configure DigitalOcean CLI
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_TOKEN }}
+
+      - name: Check for existing cluster
+        id: check
+        run: |
+          if doctl kubernetes cluster get banking-app-k8s &> /dev/null; then
+            echo "✅ Found existing cluster: banking-app-k8s"
+            echo "exists=true" >> $GITHUB_OUTPUT
+
+            # Test cluster access
+            doctl kubernetes cluster kubeconfig save banking-app-k8s
+            kubectl cluster-info
+            kubectl get nodes
+          else
+            echo "❌ No cluster found: banking-app-k8s"
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo ""
+            echo "🛠️ To fix this:"
+            echo "1. Add DIGITALOCEAN_TOKEN secret"
+            echo "2. Run 'Simple Banking App Deployment' workflow"
+            echo "3. Or manually create the cluster"
+          fi
+
   # Build and push Docker images
   build-images:
     runs-on: ubuntu-latest
-    needs: [detect-changes, verify-infrastructure]
-    if: needs.detect-changes.outputs.frontend == 'true' || needs.detect-changes.outputs.backend == 'true'
+    needs: [detect-changes, verify-infrastructure, check-existing-infrastructure]
+    if: |
+      always() &&
+      (needs.detect-changes.outputs.frontend == 'true' || needs.detect-changes.outputs.backend == 'true') &&
+      (needs.verify-infrastructure.result == 'success' || needs.check-existing-infrastructure.outputs.cluster-exists == 'true')
     strategy:
       matrix:
         include:
