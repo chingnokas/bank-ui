@@ -67,11 +67,24 @@ jobs:
         with:
           token: ${{ secrets.DIGITALOCEAN_TOKEN }}
 
+      - name: Check DigitalOcean Token
+        run: |
+          if [ -z "${{ secrets.DIGITALOCEAN_TOKEN }}" ]; then
+            echo "❌ DIGITALOCEAN_TOKEN secret is not set"
+            echo "Please add your DigitalOcean API token to GitHub secrets"
+            echo "Go to: https://github.com/${{ github.repository }}/settings/secrets/actions"
+            exit 1
+          else
+            echo "✅ DigitalOcean token is configured"
+          fi
+
       - name: Initialize OpenTofu
         working-directory: ./infra
         run: |
+          # Use simple configuration for initial deployment
+          cp simple.tf main.tf.backup
+          mv simple.tf main.tf
           tofu init
-          tofu workspace select production || tofu workspace new production
 
       - name: Plan Infrastructure
         working-directory: ./infra
@@ -79,6 +92,7 @@ jobs:
           tofu plan -var="do_token=${{ secrets.DIGITALOCEAN_TOKEN }}" \
                     -var="cluster_name=banking-app-k8s" \
                     -var="region=nyc1" \
+                    -var="node_count=2" \
                     -out=tfplan
 
       - name: Apply Infrastructure

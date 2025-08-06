@@ -15,15 +15,16 @@ terraform {
     }
   }
 
-  # Configure remote state storage
-  backend "s3" {
-    endpoint                    = "nyc3.digitaloceanspaces.com"
-    key                        = "banking-app/terraform.tfstate"
-    bucket                     = "banking-app-terraform-state"
-    region                     = "us-east-1"
-    skip_credentials_validation = true
-    skip_metadata_api_check     = true
-  }
+  # Configure remote state storage (optional - can use local state for testing)
+  # Uncomment and configure for production use:
+  # backend "s3" {
+  #   endpoint                    = "nyc3.digitaloceanspaces.com"
+  #   key                        = "banking-app/terraform.tfstate"
+  #   bucket                     = "banking-app-terraform-state"
+  #   region                     = "us-east-1"
+  #   skip_credentials_validation = true
+  #   skip_metadata_api_check     = true
+  # }
 }
 
 # Variables
@@ -79,11 +80,7 @@ resource "digitalocean_vpc" "banking_vpc" {
   region   = var.region
   ip_range = "10.10.0.0/16"
 
-  tags = [
-    "banking-app",
-    "kubernetes",
-    "production"
-  ]
+  # Tags are not supported for VPC in DigitalOcean provider
 }
 
 # Kubernetes cluster
@@ -116,8 +113,7 @@ resource "digitalocean_kubernetes_cluster" "banking_cluster" {
     min_nodes  = 2
     max_nodes  = 10
 
-    # Enable auto-upgrade for node pool
-    auto_upgrade = true
+    # Auto-upgrade is enabled at cluster level
 
     tags = [
       "banking-app",
@@ -213,11 +209,7 @@ resource "digitalocean_loadbalancer" "banking_lb" {
     healthy_threshold      = 2
   }
 
-  tags = [
-    "banking-app",
-    "load-balancer",
-    "production"
-  ]
+  # Tags are not supported for load balancer in DigitalOcean provider
 }
 
 # Spaces bucket for backups and static assets
@@ -301,15 +293,16 @@ provider "kubernetes" {
   )
 }
 
-provider "helm" {
-  kubernetes {
-    host  = digitalocean_kubernetes_cluster.banking_cluster.endpoint
-    token = digitalocean_kubernetes_cluster.banking_cluster.kube_config[0].token
-    cluster_ca_certificate = base64decode(
-      digitalocean_kubernetes_cluster.banking_cluster.kube_config[0].cluster_ca_certificate
-    )
-  }
-}
+# Helm provider configuration
+# provider "helm" {
+#   kubernetes {
+#     host  = digitalocean_kubernetes_cluster.banking_cluster.endpoint
+#     token = digitalocean_kubernetes_cluster.banking_cluster.kube_config[0].token
+#     cluster_ca_certificate = base64decode(
+#       digitalocean_kubernetes_cluster.banking_cluster.kube_config[0].cluster_ca_certificate
+#     )
+#   }
+# }
 
 # Create namespaces
 resource "kubernetes_namespace" "banking_app" {
