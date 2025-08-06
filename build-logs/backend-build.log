@@ -1,0 +1,62 @@
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.21kB 0.0s done
+#1 WARN: FromAsCasing: 'as' and 'FROM' keywords' casing do not match (line 2)
+#1 DONE 0.0s
+
+#2 [internal] load metadata for cgr.dev/chainguard/python:latest-dev
+#2 ...
+
+#3 [internal] load metadata for cgr.dev/chainguard/python:latest
+#3 DONE 2.3s
+
+#2 [internal] load metadata for cgr.dev/chainguard/python:latest-dev
+#2 DONE 2.3s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 2B 0.0s done
+#4 DONE 0.0s
+
+#5 [internal] load build context
+#5 transferring context: 13.15kB 0.0s done
+#5 DONE 0.1s
+
+#6 [stage-1 1/4] FROM cgr.dev/chainguard/python:latest@sha256:5e9c360bf22db15b87f7c41ec123564ac044a167e9feb9ebce67c562f07bb007
+#6 resolve cgr.dev/chainguard/python:latest@sha256:5e9c360bf22db15b87f7c41ec123564ac044a167e9feb9ebce67c562f07bb007
+#6 ...
+
+#7 [builder 1/4] FROM cgr.dev/chainguard/python:latest-dev@sha256:51693823bf4fd7bcbf56fee2c9d100b263503258019f723288f796f1fdb5947f
+#7 resolve cgr.dev/chainguard/python:latest-dev@sha256:51693823bf4fd7bcbf56fee2c9d100b263503258019f723288f796f1fdb5947f 0.2s done
+#7 DONE 0.2s
+
+#6 [stage-1 1/4] FROM cgr.dev/chainguard/python:latest@sha256:5e9c360bf22db15b87f7c41ec123564ac044a167e9feb9ebce67c562f07bb007
+#6 resolve cgr.dev/chainguard/python:latest@sha256:5e9c360bf22db15b87f7c41ec123564ac044a167e9feb9ebce67c562f07bb007 0.2s done
+#6 DONE 0.2s
+
+#8 [builder 2/4] WORKDIR /app
+#8 CACHED
+
+#9 [builder 3/4] COPY requirements.txt .
+#9 CACHED
+
+#10 [builder 4/4] RUN pip install --no-cache-dir --user -r requirements.txt
+#10 CACHED
+
+#11 [stage-1 2/4] WORKDIR /app
+#11 CACHED
+
+#12 [stage-1 3/4] COPY --from=builder /root/.local /home/nonroot/.local
+#12 CACHED
+
+#13 [stage-1 4/4] COPY --chown=nonroot:nonroot . .
+#13 DONE 0.1s
+
+#14 exporting to docker image format
+#14 exporting layers
+#14 exporting layers 0.2s done
+#14 exporting manifest sha256:0f13cdb9dd7a1446a3609eda97543cb69db3373ed7ff6211d2eb4a1290c02a41 0.0s done
+#14 exporting config sha256:1cec423a35fdf44df6cbcc6c887fb24799f4af0dfb539ec5fdd297474e417306 0.0s done
+#14 sending tarball
+#14 sending tarball 14.6s done
+#14 DONE 14.9s
+unpacking docker.io/chingnokas/cg-backbank:latest (sha256:0f13cdb9dd7a1446a3609eda97543cb69db3373ed7ff6211d2eb4a1290c02a41)...
+Loaded image: docker.io/chingnokas/cg-backbank:latest

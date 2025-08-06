@@ -1,0 +1,81 @@
+# Production configuration for docker-compose
+# Use this for production deployments with enhanced security
+version: '3.8'
+
+services:
+  postgres:
+    # Remove port exposure for production
+    ports: []
+    environment:
+      POSTGRES_LOG_STATEMENT: none  # Disable query logging for production
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
+
+  backend:
+    environment:
+      DEBUG: "false"
+      LOG_LEVEL: "INFO"
+    # Remove port exposure - only accessible through frontend proxy
+    ports: []
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  frontend:
+    ports:
+      - "80:80"
+      - "443:443"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+  redis:
+    # Remove port exposure for production
+    ports: []
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+  # Add a reverse proxy for production (optional)
+  nginx-proxy:
+    image: cgr.dev/chainguard/nginx:latest
+    container_name: bank-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    networks:
+      - bank-network
+    depends_on:
+      - frontend
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+      - /tmp

@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: banking-app
+  labels:
+    name: banking-app
+    environment: production
+    app.kubernetes.io/name: banking-app
+    app.kubernetes.io/part-of: banking-platform
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    name: monitoring
+    environment: production
+    app.kubernetes.io/name: monitoring
+    app.kubernetes.io/part-of: banking-platform

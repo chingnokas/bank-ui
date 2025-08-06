@@ -1,0 +1,28 @@
+# Development override for docker-compose
+# This file provides development-specific configurations
+
+services:
+  postgres:
+    ports:
+      - "5432:5432"  # Expose for development access
+    environment:
+      POSTGRES_LOG_STATEMENT: all  # Enable query logging for development
+
+  backend:
+    environment:
+      DEBUG: "true"
+      LOG_LEVEL: "DEBUG"
+    volumes:
+      - ./backend:/app:ro  # Mount source for development (read-only)
+    ports:
+      - "8000:8000"
+
+  frontend:
+    volumes:
+      - ./frontend/src:/app/src:ro  # Mount source for development
+    ports:
+      - "3000:80"  # Alternative port for development
+
+  redis:
+    ports:
+      - "6379:6379"  # Expose for development access

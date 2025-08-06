@@ -1,0 +1,178 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules
+  namespace: monitoring
+  labels:
+    app: prometheus
+    component: rules
+data:
+  banking-app.yml: |
+    groups:
+    - name: banking-app.rules
+      rules:
+      # High-level application health
+      - alert: BankingAppDown
+        expr: up{job="banking-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: banking-backend
+        annotations:
+          summary: "Banking application backend is down"
+          description: "Banking backend has been down for more than 1 minute"
+
+      - alert: BankingFrontendDown
+        expr: up{job="banking-frontend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: banking-frontend
+        annotations:
+          summary: "Banking application frontend is down"
+          description: "Banking frontend has been down for more than 1 minute"
+
+      # Database alerts
+      - alert: PostgreSQLDown
+        expr: up{job="postgres"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: postgres
+        annotations:
+          summary: "PostgreSQL database is down"
+          description: "PostgreSQL database has been down for more than 1 minute"
+
+      - alert: DatabaseConnectionsHigh
+        expr: pg_stat_database_numbackends{datname="bankdb"} > 80
+        for: 5m
+        labels:
+          severity: warning
+          service: postgres
+        annotations:
+          summary: "High number of database connections"
+          description: "Database has {{ $value }} active connections"
+
+      # Performance alerts
+      - alert: HighResponseTime
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job="banking-backend"}[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+          service: banking-backend
+        annotations:
+          summary: "High response time detected"
+          description: "95th percentile response time is {{ $value }}s"
+
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{job="banking-backend",status=~"5.."}[5m]) / rate(http_requests_total{job="banking-backend"}[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          service: banking-backend
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }}"
+
+      # Resource alerts
+      - alert: HighCPUUsage
+        expr: rate(container_cpu_usage_seconds_total{namespace="banking-app"}[5m]) * 100 > 80
+        for: 10m
+        labels:
+          severity: warning
+          service: "{{ $labels.pod }}"
+        annotations:
+          summary: "High CPU usage detected"
+          description: "Pod {{ $labels.pod }} CPU usage is {{ $value }}%"
+
+      - alert: HighMemoryUsage
+        expr: container_memory_usage_bytes{namespace="banking-app"} / container_spec_memory_limit_bytes{namespace="banking-app"} > 0.9
+        for: 10m
+        labels:
+          severity: warning
+          service: "{{ $labels.pod }}"
+        annotations:
+          summary: "High memory usage detected"
+          description: "Pod {{ $labels.pod }} memory usage is {{ $value | humanizePercentage }}"
+
+      # Security alerts
+      - alert: TooManyFailedLogins
+        expr: increase(failed_login_attempts_total[5m]) > 10
+        for: 1m
+        labels:
+          severity: warning
+          service: banking-backend
+        annotations:
+          summary: "Too many failed login attempts"
+          description: "{{ $value }} failed login attempts in the last 5 minutes"
+
+      - alert: SuspiciousActivity
+        expr: increase(suspicious_activity_total[5m]) > 5
+        for: 1m
+        labels:
+          severity: critical
+          service: banking-backend
+        annotations:
+          summary: "Suspicious activity detected"
+          description: "{{ $value }} suspicious activities detected in the last 5 minutes"
+
+      # Business logic alerts
+      - alert: HighTransactionVolume
+        expr: rate(banking_transactions_total[5m]) > 100
+        for: 5m
+        labels:
+          severity: info
+          service: banking-backend
+        annotations:
+          summary: "High transaction volume"
+          description: "Transaction rate is {{ $value }} per second"
+
+      - alert: LowTransactionVolume
+        expr: rate(banking_transactions_total[5m]) < 1
+        for: 30m
+        labels:
+          severity: warning
+          service: banking-backend
+        annotations:
+          summary: "Low transaction volume"
+          description: "Transaction rate is {{ $value }} per second for 30 minutes"
+
+    - name: kubernetes.rules
+      rules:
+      # Kubernetes cluster health
+      - alert: KubernetesNodeNotReady
+        expr: kube_node_status_condition{condition="Ready",status="true"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Kubernetes node not ready"
+          description: "Node {{ $labels.node }} has been not ready for more than 5 minutes"
+
+      - alert: KubernetesPodCrashLooping
+        expr: rate(kube_pod_container_status_restarts_total{namespace="banking-app"}[15m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pod is crash looping"
+          description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} is restarting frequently"
+
+      - alert: KubernetesPodNotReady
+        expr: kube_pod_status_ready{condition="true",namespace="banking-app"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pod not ready"
+          description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has been not ready for more than 5 minutes"
+
+      # Storage alerts
+      - alert: PersistentVolumeUsageHigh
+        expr: kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Persistent volume usage high"
+          description: "PV {{ $labels.persistentvolumeclaim }} usage is {{ $value | humanizePercentage }}"

@@ -1,0 +1,150 @@
+services:
+  # PostgreSQL Database - ACID compliant for banking
+  postgres:
+    image: cgr.dev/chainguard/postgres:latest
+    container_name: bank-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: bankdb
+      POSTGRES_USER: bankuser
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+      PGDATA: /var/lib/postgresql/data/pgdata
+    secrets:
+      - db_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - bank-network
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bankuser -d bankdb"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run/postgresql
+
+  # Backend API Service
+  backend:
+    image: chingnokas/cg-backbank:latest
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: bank-backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://bankuser:${DB_PASSWORD}@postgres:5432/bankdb
+      SECRET_KEY_FILE: /run/secrets/jwt_secret
+      ALLOWED_ORIGINS: http://frontend,http://localhost:3000
+      APP_NAME: "Peoples Bank API"
+      APP_VERSION: "1.0.0"
+      DEBUG: "false"
+    secrets:
+      - jwt_secret
+      - db_password
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - bank-network
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/api/', timeout=10)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+
+  # Frontend Service
+  frontend:
+    image: chingnokas/cg-bank:latest
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: bank-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - bank-network
+    ports:
+      - "80:80"
+      - "443:443"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+      - /tmp
+
+  # Redis for session management and caching (optional but recommended for banking)
+  redis:
+    image: cgr.dev/chainguard/redis:latest
+    container_name: bank-redis
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "RedisSecurePass2024!", "--appendonly", "yes"]
+    environment:
+      REDIS_PASSWORD_FILE: /run/secrets/redis_password
+    secrets:
+      - redis_password
+    volumes:
+      - redis_data:/data
+    networks:
+      - bank-network
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+
+# Networks
+networks:
+  bank-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# Volumes for data persistence
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+# Secrets management
+secrets:
+  db_password:
+    file: ./secrets/db_password.txt
+  jwt_secret:
+    file: ./secrets/jwt_secret.txt
+  redis_password:
+    file: ./secrets/redis_password.txt

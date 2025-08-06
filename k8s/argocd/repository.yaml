@@ -1,0 +1,174 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: banking-app-repo
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+type: Opaque
+stringData:
+  type: git
+  url: https://github.com/chingnokas/bank-ui.git
+  # For private repositories, add credentials:
+  # username: your-username
+  # password: your-token
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cm
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-cm
+    app.kubernetes.io/part-of: argocd
+data:
+  # Argo CD configuration
+  application.instanceLabelKey: argocd.argoproj.io/instance
+  server.rbac.log.enforce.enable: "true"
+  policy.default: role:readonly
+  policy.csv: |
+    p, role:banking-admin, applications, *, banking-platform/*, allow
+    p, role:banking-admin, clusters, *, *, allow
+    p, role:banking-admin, repositories, *, *, allow
+    p, role:banking-developer, applications, get, banking-platform/*, allow
+    p, role:banking-developer, applications, sync, banking-platform/*, allow
+    g, banking-platform:admin, role:banking-admin
+    g, banking-platform:developer, role:banking-developer
+  
+  # Resource exclusions - ignore infrastructure changes
+  resource.exclusions: |
+    - apiGroups:
+      - "*"
+      kinds:
+      - "*"
+      clusters:
+      - "*"
+      jsonPointers:
+      - /spec/template/spec/containers/0/image
+      # Only sync when app code changes, ignore infrastructure
+    
+  # Resource inclusions - only watch app directories
+  resource.inclusions: |
+    - apiGroups:
+      - "apps"
+      kinds:
+      - "Deployment"
+      - "StatefulSet"
+      clusters:
+      - "*"
+    - apiGroups:
+      - ""
+      kinds:
+      - "Service"
+      - "ConfigMap"
+      - "Secret"
+      clusters:
+      - "*"
+  
+  # Ignore differences in certain fields
+  resource.customizations.ignoreDifferences.all: |
+    jsonPointers:
+    - /metadata/resourceVersion
+    - /metadata/generation
+    - /metadata/uid
+    - /status
+  
+  # Health checks
+  resource.customizations.health.argoproj.io_Application: |
+    hs = {}
+    hs.status = "Progressing"
+    hs.message = ""
+    if obj.status ~= nil then
+      if obj.status.health ~= nil then
+        hs.status = obj.status.health.status
+        if obj.status.health.message ~= nil then
+          hs.message = obj.status.health.message
+        end
+      end
+    end
+    return hs
+  
+  # Sync options
+  application.sync.options: |
+    - CreateNamespace=true
+    - PrunePropagationPolicy=foreground
+    - PruneLast=true
+  
+  # Timeout settings
+  timeout.hard.reconciliation: 0
+  timeout.reconciliation: 180s
+  
+  # Git settings
+  git.timeout: 60s
+  
+  # Repository settings
+  repositories: |
+    - url: https://github.com/chingnokas/bank-ui.git
+      name: banking-app-repo
+      type: git
+      # For private repos:
+      # username: your-username
+      # password: your-token
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cmd-params-cm
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-cmd-params-cm
+    app.kubernetes.io/part-of: argocd
+data:
+  # Server configuration
+  server.insecure: "true"
+  server.grpc.web: "true"
+  server.enable.proxy.extension: "true"
+  
+  # Application controller configuration
+  controller.status.processors: "20"
+  controller.operation.processors: "10"
+  controller.self.heal.timeout.seconds: "5"
+  controller.repo.server.timeout.seconds: "60"
+  
+  # Repository server configuration
+  reposerver.parallelism.limit: "10"
+  
+  # Disable admin user after initial setup
+  server.disable.auth: "false"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-rbac-cm
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-rbac-cm
+    app.kubernetes.io/part-of: argocd
+data:
+  policy.default: role:readonly
+  policy.csv: |
+    # Banking platform admin role
+    p, role:banking-admin, applications, *, banking-platform/*, allow
+    p, role:banking-admin, clusters, *, *, allow
+    p, role:banking-admin, repositories, *, *, allow
+    p, role:banking-admin, certificates, *, *, allow
+    p, role:banking-admin, projects, *, *, allow
+    
+    # Banking platform developer role
+    p, role:banking-developer, applications, get, banking-platform/*, allow
+    p, role:banking-developer, applications, sync, banking-platform/*, allow
+    p, role:banking-developer, applications, action/*, banking-platform/*, allow
+    p, role:banking-developer, repositories, get, *, allow
+    p, role:banking-developer, projects, get, banking-platform, allow
+    
+    # Banking platform viewer role
+    p, role:banking-viewer, applications, get, banking-platform/*, allow
+    p, role:banking-viewer, repositories, get, *, allow
+    p, role:banking-viewer, projects, get, banking-platform, allow
+    
+    # Group mappings (configure with your identity provider)
+    g, banking-platform:admin, role:banking-admin
+    g, banking-platform:developer, role:banking-developer
+    g, banking-platform:viewer, role:banking-viewer
+  
+  scopes: '[groups]'

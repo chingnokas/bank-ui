@@ -1,0 +1,256 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: banking-app-ingress
+  namespace: banking-app
+  labels:
+    app: banking-app
+    component: ingress
+    environment: production
+  annotations:
+    # DigitalOcean Load Balancer annotations
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    
+    # Security headers
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      add_header X-Frame-Options "SAMEORIGIN" always;
+      add_header X-Content-Type-Options "nosniff" always;
+      add_header X-XSS-Protection "1; mode=block" always;
+      add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+      add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    
+    # Rate limiting
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+    
+    # CORS
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "https://banking-app.com,https://www.banking-app.com"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization"
+    
+    # SSL certificate (Let's Encrypt)
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    
+    # Load balancer configuration
+    service.beta.kubernetes.io/do-loadbalancer-name: "banking-app-lb"
+    service.beta.kubernetes.io/do-loadbalancer-protocol: "http"
+    service.beta.kubernetes.io/do-loadbalancer-algorithm: "round_robin"
+    service.beta.kubernetes.io/do-loadbalancer-healthcheck-path: "/health"
+    service.beta.kubernetes.io/do-loadbalancer-healthcheck-protocol: "http"
+    service.beta.kubernetes.io/do-loadbalancer-healthcheck-port: "80"
+spec:
+  tls:
+  - hosts:
+    - banking-app.com
+    - www.banking-app.com
+    - api.banking-app.com
+    secretName: banking-app-tls
+  rules:
+  # Main application
+  - host: banking-app.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: banking-frontend
+            port:
+              number: 80
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: banking-backend
+            port:
+              number: 8000
+  
+  # WWW redirect
+  - host: www.banking-app.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: banking-frontend
+            port:
+              number: 80
+  
+  # API subdomain
+  - host: api.banking-app.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: banking-backend
+            port:
+              number: 8000
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: monitoring-ingress
+  namespace: monitoring
+  labels:
+    app: monitoring
+    component: ingress
+    environment: production
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    
+    # Basic auth for monitoring services
+    nginx.ingress.kubernetes.io/auth-type: basic
+    nginx.ingress.kubernetes.io/auth-secret: monitoring-auth
+    nginx.ingress.kubernetes.io/auth-realm: "Monitoring Access Required"
+    
+    # SSL certificate
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  tls:
+  - hosts:
+    - grafana.banking-app.com
+    - prometheus.banking-app.com
+    secretName: monitoring-tls
+  rules:
+  # Grafana
+  - host: grafana.banking-app.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: grafana
+            port:
+              number: 3000
+  
+  # Prometheus
+  - host: prometheus.banking-app.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: prometheus-server
+            port:
+              number: 9090
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: monitoring-auth
+  namespace: monitoring
+  labels:
+    app: monitoring
+    component: auth
+type: Opaque
+data:
+  # admin:$2y$10$... (bcrypt hash of "monitoring123")
+  auth: YWRtaW46JDJ5JDEwJE5vRGJOVUhGdVFhVGhHdVFhVGhHdU9FeUZRYVRoR3VRYVRoR3VRYVRoR3VRYVRoR3U=
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: banking-app-network-policy
+  namespace: banking-app
+  labels:
+    app: banking-app
+    component: network-policy
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow ingress from nginx ingress controller
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+  # Allow ingress from monitoring namespace
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+  # Allow inter-pod communication within namespace
+  - from:
+    - podSelector: {}
+  egress:
+  # Allow egress to DNS
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+  # Allow egress to external services (HTTPS)
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+  # Allow egress to database
+  - to:
+    - podSelector:
+        matchLabels:
+          app: postgres
+    ports:
+    - protocol: TCP
+      port: 5432
+  # Allow egress within namespace
+  - to:
+    - podSelector: {}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: monitoring-network-policy
+  namespace: monitoring
+  labels:
+    app: monitoring
+    component: network-policy
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow ingress from nginx ingress controller
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+  # Allow inter-pod communication within namespace
+  - from:
+    - podSelector: {}
+  # Allow ingress from banking-app namespace for metrics
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: banking-app
+  egress:
+  # Allow egress to DNS
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+  # Allow egress to external services
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+  # Allow egress to banking-app namespace for scraping
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: banking-app
+  # Allow egress within namespace
+  - to:
+    - podSelector: {}

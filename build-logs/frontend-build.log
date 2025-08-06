@@ -1,0 +1,106 @@
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.04kB 0.0s done
+#1 WARN: FromAsCasing: 'as' and 'FROM' keywords' casing do not match (line 4)
+#1 DONE 0.1s
+
+#2 [internal] load metadata for cgr.dev/chainguard/node:latest-dev
+#2 DONE 1.6s
+
+#3 [internal] load metadata for cgr.dev/chainguard/nginx:latest
+#3 DONE 1.6s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 2B done
+#4 DONE 0.0s
+
+#5 [internal] load build context
+#5 DONE 0.0s
+
+#6 [builder 1/6] FROM cgr.dev/chainguard/node:latest-dev@sha256:5fc5e51d44412ce3fc29173a61b04faf274190871f679333a338bfe88ebb8f00
+#6 resolve cgr.dev/chainguard/node:latest-dev@sha256:5fc5e51d44412ce3fc29173a61b04faf274190871f679333a338bfe88ebb8f00 0.1s done
+#6 DONE 0.1s
+
+#7 [stage-1 1/3] FROM cgr.dev/chainguard/nginx:latest@sha256:cf5e1e993b0a351365e998953b2224810ed9e7e80b513bbf1e6aea949013e6df
+#7 resolve cgr.dev/chainguard/nginx:latest@sha256:cf5e1e993b0a351365e998953b2224810ed9e7e80b513bbf1e6aea949013e6df
+#7 resolve cgr.dev/chainguard/nginx:latest@sha256:cf5e1e993b0a351365e998953b2224810ed9e7e80b513bbf1e6aea949013e6df 0.1s done
+#7 DONE 0.1s
+
+#5 [internal] load build context
+#5 transferring context: 713.31kB 0.3s done
+#5 DONE 0.4s
+
+#8 [builder 2/6] WORKDIR /app
+#8 CACHED
+
+#9 [builder 3/6] COPY package.json yarn.lock ./
+#9 CACHED
+
+#10 [builder 4/6] RUN yarn install --frozen-lockfile --production=false
+#10 CACHED
+
+#11 [builder 5/6] COPY . .
+#11 DONE 0.2s
+
+#12 [builder 6/6] RUN yarn build
+#12 0.828 yarn run v1.22.22
+#12 0.942 $ craco build
+#12 7.030 (node:34) [DEP0176] DeprecationWarning: fs.F_OK is deprecated, use fs.constants.F_OK instead
+#12 7.030 (Use `node --trace-deprecation ...` to show where the warning was created)
+#12 7.037 Creating an optimized production build...
+#12 7.680 Browserslist: browsers data (caniuse-lite) is 8 months old. Please run:
+#12 7.680   npx update-browserslist-db@latest
+#12 7.680   Why you should do it regularly: https://github.com/browserslist/update-db#readme
+#12 13.14 [0;33mOne of your dependencies, babel-preset-react-app, is importing the
+#12 13.14 "@babel/plugin-proposal-private-property-in-object" package without
+#12 13.14 declaring it in its dependencies. This is currently working because
+#12 13.14 "@babel/plugin-proposal-private-property-in-object" is already in your
+#12 13.14 node_modules folder for unrelated reasons, but it [1mmay break at any time[0;33m.
+#12 13.14 
+#12 13.14 babel-preset-react-app is part of the create-react-app project, [1mwhich
+#12 13.14 is not maintianed anymore[0;33m. It is thus unlikely that this bug will
+#12 13.14 ever be fixed. Add "@babel/plugin-proposal-private-property-in-object" to
+#12 13.14 your devDependencies to work around this error. This will make this message
+#12 13.14 go away.[0m
+#12 13.14   
+#12 63.11 Browserslist: browsers data (caniuse-lite) is 8 months old. Please run:
+#12 63.11   npx update-browserslist-db@latest
+#12 63.11   Why you should do it regularly: https://github.com/browserslist/update-db#readme
+#12 66.72 Compiled successfully.
+#12 66.72 
+#12 66.72 File sizes after gzip:
+#12 66.72 
+#12 66.77   94.96 kB  build/static/js/main.0a1e6c8f.js
+#12 66.77   11.15 kB  build/static/css/main.b00afa12.css
+#12 66.77 
+#12 66.77 The project was built assuming it is hosted at /.
+#12 66.77 You can control this with the homepage field in your package.json.
+#12 66.77 
+#12 66.77 The build folder is ready to be deployed.
+#12 66.77 You may serve it with a static server:
+#12 66.77 
+#12 66.77   yarn global add serve
+#12 66.77   serve -s build
+#12 66.77 
+#12 66.77 Find out more about deployment here:
+#12 66.77 
+#12 66.77   https://cra.link/deployment
+#12 66.77 
+#12 66.92 Done in 66.10s.
+#12 DONE 67.2s
+
+#13 [stage-1 2/3] COPY --from=builder /app/build /usr/share/nginx/html
+#13 CACHED
+
+#14 [stage-1 3/3] COPY --from=builder /app/nginx.conf /etc/nginx/nginx.conf
+#14 CACHED
+
+#15 exporting to docker image format
+#15 exporting layers 0.1s done
+#15 exporting manifest sha256:801fa128c7fc69ab47e30f2ba40979bf52a0365c4c122a033478314b42cc6deb 0.1s done
+#15 exporting config sha256:7392a2a1130396fb28103799491639da327acfd19ec169886e29b67abe13f06d
+#15 exporting config sha256:7392a2a1130396fb28103799491639da327acfd19ec169886e29b67abe13f06d 0.0s done
+#15 sending tarball
+#15 sending tarball 1.7s done
+#15 DONE 1.8s
+unpacking docker.io/chingnokas/cg-bank:latest (sha256:801fa128c7fc69ab47e30f2ba40979bf52a0365c4c122a033478314b42cc6deb)...
+Loaded image: docker.io/chingnokas/cg-bank:latest
