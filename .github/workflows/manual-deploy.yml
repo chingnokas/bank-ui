@@ -1,0 +1,258 @@
+name: Manual Deploy Banking App
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_type:
+        description: 'Deployment type'
+        required: true
+        default: 'full'
+        type: choice
+        options:
+        - full
+        - infrastructure-only
+        - apps-only
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check Prerequisites
+        run: |
+          echo "🔍 Checking prerequisites..."
+          echo "Deploy type: ${{ github.event.inputs.deploy_type }}"
+          
+          if [ -z "${{ secrets.DIGITALOCEAN_TOKEN }}" ]; then
+            echo "❌ DIGITALOCEAN_TOKEN secret is missing"
+            exit 1
+          fi
+          
+          echo "✅ Prerequisites OK"
+
+      - name: Setup Tools
+        run: |
+          echo "🔧 Setting up tools..."
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: 1.6.0
+
+      - name: Configure DigitalOcean CLI
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_TOKEN }}
+
+      - name: Test Connection
+        run: |
+          echo "🌊 Testing DigitalOcean connection..."
+          doctl account get
+          echo "✅ Connection successful"
+
+      - name: Check Existing Infrastructure
+        run: |
+          echo "🔍 Checking existing infrastructure..."
+          
+          if doctl kubernetes cluster get banking-app-k8s &> /dev/null; then
+            STATUS=$(doctl kubernetes cluster get banking-app-k8s --format Status --no-header)
+            echo "✅ Found cluster with status: $STATUS"
+            echo "CLUSTER_EXISTS=true" >> $GITHUB_ENV
+            
+            if [ "$STATUS" = "running" ]; then
+              echo "CLUSTER_READY=true" >> $GITHUB_ENV
+            else
+              echo "CLUSTER_READY=false" >> $GITHUB_ENV
+            fi
+          else
+            echo "❌ No cluster found"
+            echo "CLUSTER_EXISTS=false" >> $GITHUB_ENV
+            echo "CLUSTER_READY=false" >> $GITHUB_ENV
+          fi
+
+      - name: Create Infrastructure
+        if: env.CLUSTER_READY != 'true'
+        working-directory: ./infra
+        run: |
+          echo "🏗️ Creating infrastructure..."
+          
+          # Use simple configuration without duplicate providers
+          cat > main.tf << 'EOF'
+          # Variables
+          variable "do_token" {
+            description = "DigitalOcean API Token"
+            type        = string
+            sensitive   = true
+          }
+
+          variable "cluster_name" {
+            description = "Name of the Kubernetes cluster"
+            type        = string
+            default     = "banking-app-k8s"
+          }
+
+          variable "region" {
+            description = "DigitalOcean region"
+            type        = string
+            default     = "nyc1"
+          }
+
+          variable "node_count" {
+            description = "Number of worker nodes"
+            type        = number
+            default     = 2
+          }
+
+          variable "node_size" {
+            description = "Size of worker nodes"
+            type        = string
+            default     = "s-2vcpu-4gb"
+          }
+
+          # Configure provider
+          provider "digitalocean" {
+            token = var.do_token
+          }
+
+          # Get available Kubernetes versions
+          data "digitalocean_kubernetes_versions" "available" {
+            version_prefix = "1.28."
+          }
+
+          # Kubernetes cluster
+          resource "digitalocean_kubernetes_cluster" "banking_cluster" {
+            name    = var.cluster_name
+            region  = var.region
+            version = data.digitalocean_kubernetes_versions.available.latest_version
+
+            node_pool {
+              name       = "${var.cluster_name}-worker-pool"
+              size       = var.node_size
+              node_count = var.node_count
+              auto_scale = true
+              min_nodes  = 1
+              max_nodes  = 5
+
+              labels = {
+                environment = "production"
+                app         = "banking-app"
+              }
+            }
+
+            maintenance_policy {
+              start_time = "04:00"
+              day        = "sunday"
+            }
+
+            auto_upgrade = true
+            surge_upgrade = true
+          }
+
+          # Outputs
+          output "cluster_id" {
+            value = digitalocean_kubernetes_cluster.banking_cluster.id
+          }
+
+          output "cluster_endpoint" {
+            value = digitalocean_kubernetes_cluster.banking_cluster.endpoint
+            sensitive = true
+          }
+          EOF
+          
+          echo "Initializing OpenTofu..."
+          tofu init
+          
+          echo "Planning infrastructure..."
+          tofu plan -var="do_token=${{ secrets.DIGITALOCEAN_TOKEN }}" \
+                    -var="cluster_name=banking-app-k8s" \
+                    -var="region=nyc1" \
+                    -var="node_count=2" \
+                    -out=tfplan
+          
+          echo "Creating infrastructure..."
+          tofu apply -auto-approve tfplan
+          
+          echo "✅ Infrastructure created"
+
+      - name: Setup Cluster Access
+        run: |
+          echo "🔧 Setting up cluster access..."
+          doctl kubernetes cluster kubeconfig save banking-app-k8s
+          kubectl wait --for=condition=Ready nodes --all --timeout=600s
+          kubectl cluster-info
+          kubectl get nodes
+          echo "✅ Cluster access ready"
+
+      - name: Deploy Base Infrastructure
+        if: github.event.inputs.deploy_type == 'full' || github.event.inputs.deploy_type == 'apps-only'
+        run: |
+          echo "📁 Deploying base infrastructure..."
+          kubectl apply -f k8s/namespace.yaml
+          kubectl apply -f k8s/secrets/banking-secrets.yaml
+          kubectl apply -f k8s/database/postgres.yaml
+          kubectl rollout status statefulset/postgres -n banking-app --timeout=300s
+          echo "✅ Base infrastructure ready"
+
+      - name: Build and Deploy Apps
+        if: github.event.inputs.deploy_type == 'full' || github.event.inputs.deploy_type == 'apps-only'
+        run: |
+          echo "🚀 Building and deploying applications..."
+          
+          # Setup Docker
+          docker buildx create --use
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          
+          # Build images
+          docker buildx build --platform linux/amd64 -t ghcr.io/chingnokas/cg-bank:latest --push frontend/
+          docker buildx build --platform linux/amd64 -t ghcr.io/chingnokas/cg-backbank:latest --push backend/
+          
+          # Create registry secret
+          kubectl create secret docker-registry registry-credentials \
+            --docker-server=ghcr.io \
+            --docker-username=${{ github.actor }} \
+            --docker-password=${{ secrets.GITHUB_TOKEN }} \
+            --namespace=banking-app \
+            --dry-run=client -o yaml | kubectl apply -f -
+          
+          # Deploy apps
+          kubectl apply -f k8s/backend/
+          kubectl apply -f k8s/frontend/
+          kubectl rollout status deployment/banking-backend -n banking-app --timeout=300s
+          kubectl rollout status deployment/banking-frontend -n banking-app --timeout=300s
+          
+          echo "✅ Applications deployed"
+
+      - name: Deploy Monitoring
+        if: github.event.inputs.deploy_type == 'full'
+        continue-on-error: true
+        run: |
+          echo "📊 Deploying monitoring..."
+          kubectl apply -f k8s/monitoring/prometheus/
+          kubectl apply -f k8s/monitoring/grafana/
+          kubectl rollout status deployment/prometheus-server -n monitoring --timeout=300s
+          kubectl rollout status deployment/grafana -n monitoring --timeout=300s
+          echo "✅ Monitoring deployed"
+
+      - name: Get Results
+        run: |
+          echo "⏳ Getting service URLs..."
+          sleep 30
+          
+          FRONTEND_IP=$(kubectl get svc banking-frontend -n banking-app -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "pending")
+          BACKEND_IP=$(kubectl get svc banking-backend -n banking-app -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "pending")
+          GRAFANA_IP=$(kubectl get svc grafana -n monitoring -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "pending")
+          
+          echo ""
+          echo "🎉 DEPLOYMENT COMPLETE!"
+          echo "======================"
+          echo ""
+          echo "🌐 Banking Application:"
+          echo "Frontend: http://$FRONTEND_IP/"
+          echo "Backend:  http://$BACKEND_IP:8000/"
+          echo ""
+          echo "📊 Monitoring:"
+          echo "Grafana: http://$GRAFANA_IP:3000/ (admin/BankingGrafana2024!)"
+          echo ""
+          echo "🎯 SUCCESS! Your banking application is live!"
