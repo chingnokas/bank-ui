@@ -1,15 +1,6 @@
 # Simplified OpenTofu configuration for DigitalOcean Kubernetes
 # This version focuses on core functionality and avoids complex configurations
-
-terraform {
-  required_version = ">= 1.0"
-  required_providers {
-    digitalocean = {
-      source  = "digitalocean/digitalocean"
-      version = "~> 2.34"
-    }
-  }
-}
+# Note: Provider requirements are defined in versions.tf
 
 # Variables
 variable "do_token" {

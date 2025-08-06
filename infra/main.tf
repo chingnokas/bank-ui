@@ -1,31 +1,18 @@
-terraform {
-  required_version = ">= 1.0"
-  required_providers {
-    digitalocean = {
-      source  = "digitalocean/digitalocean"
-      version = "~> 2.0"
-    }
-    kubernetes = {
-      source  = "hashicorp/kubernetes"
-      version = "~> 2.0"
-    }
-    helm = {
-      source  = "hashicorp/helm"
-      version = "~> 2.0"
-    }
-  }
+# OpenTofu configuration
+# Provider requirements are defined in versions.tf
 
-  # Configure remote state storage (optional - can use local state for testing)
-  # Uncomment and configure for production use:
-  # backend "s3" {
-  #   endpoint                    = "nyc3.digitaloceanspaces.com"
-  #   key                        = "banking-app/terraform.tfstate"
-  #   bucket                     = "banking-app-terraform-state"
-  #   region                     = "us-east-1"
-  #   skip_credentials_validation = true
-  #   skip_metadata_api_check     = true
-  # }
-}
+# Configure remote state storage (optional - can use local state for testing)
+# Uncomment and configure for production use:
+# terraform {
+#   backend "s3" {
+#     endpoint                    = "nyc3.digitaloceanspaces.com"
+#     key                        = "banking-app/terraform.tfstate"
+#     bucket                     = "banking-app-terraform-state"
+#     region                     = "us-east-1"
+#     skip_credentials_validation = true
+#     skip_metadata_api_check     = true
+#   }
+# }
 
 # Variables
 variable "do_token" {
