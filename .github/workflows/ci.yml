@@ -50,6 +50,7 @@ jobs:
     outputs:
       cluster-endpoint: ${{ steps.cluster-info.outputs.endpoint }}
       cluster-ca: ${{ steps.cluster-info.outputs.ca-certificate }}
+      kubeconfig-data: ${{ steps.cluster-info.outputs.kubeconfig-data }}
     steps:
       - uses: actions/checkout@v4
 
@@ -97,13 +98,28 @@ jobs:
         run: |
           tofu apply -auto-approve tfplan
 
-      - name: Get Cluster Info
+      - name: Get Cluster Info and Setup Kubeconfig
         id: cluster-info
         if: github.ref == 'refs/heads/main'
         run: |
+          # Get cluster credentials
           doctl kubernetes cluster kubeconfig save banking-app-k8s
+
+          # Wait for cluster to be ready
+          echo "Waiting for cluster to be ready..."
+          kubectl wait --for=condition=Ready nodes --all --timeout=600s
+
+          # Verify cluster connectivity
+          kubectl cluster-info
+          kubectl get nodes
+
+          # Export cluster info
           echo "endpoint=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')" >> $GITHUB_OUTPUT
           echo "ca-certificate=$(kubectl config view --raw --minify --flatten -o jsonpath='{.clusters[0].cluster.certificate-authority-data}')" >> $GITHUB_OUTPUT
+
+          # Save kubeconfig for other jobs
+          KUBE_CONFIG_DATA=$(kubectl config view --raw --minify --flatten | base64 -w 0)
+          echo "kubeconfig-data=$KUBE_CONFIG_DATA" >> $GITHUB_OUTPUT
 
   # Wait for infrastructure to be ready
   verify-infrastructure:
@@ -114,16 +130,22 @@ jobs:
       - name: Configure kubectl
         run: |
           mkdir -p ~/.kube
-          echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 -d > ~/.kube/config
+          if [ -n "${{ needs.provision-infrastructure.outputs.kubeconfig-data }}" ]; then
+            # Use kubeconfig from infrastructure job
+            echo "${{ needs.provision-infrastructure.outputs.kubeconfig-data }}" | base64 -d > ~/.kube/config
+          elif [ -n "${{ secrets.KUBE_CONFIG_DATA }}" ]; then
+            # Fallback to existing secret
+            echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 -d > ~/.kube/config
+          else
+            echo "❌ No kubeconfig available"
+            exit 1
+          fi
 
       - name: Verify cluster connectivity
         run: |
           kubectl cluster-info
           kubectl get nodes
-          
-      - name: Wait for cluster to be ready
-        run: |
-          kubectl wait --for=condition=Ready nodes --all --timeout=300s
+          echo "✅ Cluster is ready and accessible"
 
   # Build and push Docker images
   build-images:
@@ -191,10 +213,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Configure DigitalOcean CLI
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_TOKEN }}
+
       - name: Configure kubectl
         run: |
-          mkdir -p ~/.kube
-          echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 -d > ~/.kube/config
+          doctl kubernetes cluster kubeconfig save banking-app-k8s
+          kubectl cluster-info
 
       - name: Deploy Prometheus
         run: |
@@ -213,15 +240,20 @@ jobs:
   # Deploy Argo CD and configure applications
   deploy-argocd:
     runs-on: ubuntu-latest
-    needs: [verify-infrastructure, build-images]
+    needs: [detect-changes, verify-infrastructure, build-images]
     if: always() && needs.verify-infrastructure.result == 'success'
     steps:
       - uses: actions/checkout@v4
 
+      - name: Configure DigitalOcean CLI
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_TOKEN }}
+
       - name: Configure kubectl
         run: |
-          mkdir -p ~/.kube
-          echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 -d > ~/.kube/config
+          doctl kubernetes cluster kubeconfig save banking-app-k8s
+          kubectl cluster-info
 
       - name: Create Application Secrets
         run: |
@@ -277,10 +309,15 @@ jobs:
     needs: [deploy-argocd, deploy-monitoring]
     if: always()
     steps:
+      - name: Configure DigitalOcean CLI
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_TOKEN }}
+
       - name: Configure kubectl
         run: |
-          mkdir -p ~/.kube
-          echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 -d > ~/.kube/config
+          doctl kubernetes cluster kubeconfig save banking-app-k8s
+          kubectl cluster-info
 
       - name: Health Check - Frontend
         run: |
