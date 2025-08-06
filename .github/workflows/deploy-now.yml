@@ -80,6 +80,18 @@ jobs:
           
           # Base infrastructure
           kubectl apply -f k8s/namespace.yaml
+
+          # Clean up old PostgreSQL resources
+          echo "🧹 Cleaning up old PostgreSQL resources..."
+          kubectl delete statefulset postgres -n banking-app --ignore-not-found=true
+          kubectl delete configmap postgres-config postgres-init -n banking-app --ignore-not-found=true
+          kubectl delete pvc -l app=postgres -n banking-app --ignore-not-found=true
+
+          # Wait for cleanup
+          sleep 30
+
+          # Deploy new simplified PostgreSQL
+          echo "🗄️ Deploying simplified PostgreSQL..."
           kubectl apply -f k8s/database/postgres-simple.yaml
 
           # Wait for PostgreSQL to be ready (increased timeout)
