@@ -213,6 +213,22 @@ jobs:
           mkdir -p ~/.kube
           echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 -d > ~/.kube/config
 
+      - name: Create Application Secrets
+        run: |
+          # Create namespaces
+          kubectl apply -f k8s/namespace.yaml
+
+          # Apply application secrets (without sensitive data)
+          kubectl apply -f k8s/secrets/banking-secrets.yaml
+
+          # Create registry secret for pulling images
+          kubectl create secret docker-registry registry-credentials \
+            --docker-server=${{ env.REGISTRY }} \
+            --docker-username=${{ github.actor }} \
+            --docker-password=${{ secrets.GITHUB_TOKEN }} \
+            --namespace=banking-app \
+            --dry-run=client -o yaml | kubectl apply -f -
+
       - name: Install Argo CD
         run: |
           kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -

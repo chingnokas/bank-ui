@@ -31,9 +31,42 @@ dist/
 dist
 
 # Environment files (comprehensive coverage)
+.env
+.env.local
+.env.production
+.env.staging
 
+# SECURITY: Never commit these files
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+*.csr
+secrets/
+.secrets/
+*secret*
+*credential*
+*password*
 *token.json*
 *credentials.json*
+.dockerconfigjson
+config.json
+
+# Kubernetes secrets (actual secret files, not templates)
+k8s/secrets/*.yaml
+!k8s/secrets/*.template.yaml
+!k8s/secrets/banking-secrets.yaml
+
+# Terraform/OpenTofu sensitive files
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+.terraform/
+.terraform.lock.hcl
+terraform.rc
+.terraformrc
 
 # Logs and debug files
 npm-debug.log*
