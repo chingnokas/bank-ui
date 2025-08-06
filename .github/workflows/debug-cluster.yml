@@ -1,0 +1,139 @@
+name: Debug Cluster Issues
+
+on:
+  workflow_dispatch:  # Manual trigger only
+
+jobs:
+  debug-infrastructure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check DigitalOcean Token
+        run: |
+          if [ -z "${{ secrets.DIGITALOCEAN_TOKEN }}" ]; then
+            echo "❌ DIGITALOCEAN_TOKEN secret is missing"
+            echo "Add it at: https://github.com/${{ github.repository }}/settings/secrets/actions"
+            exit 1
+          fi
+          echo "✅ DigitalOcean token is configured"
+
+      - name: Configure DigitalOcean CLI
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_TOKEN }}
+
+      - name: Check DigitalOcean Account
+        run: |
+          echo "🔍 Checking DigitalOcean account..."
+          doctl account get
+          echo ""
+          echo "💰 Account balance and limits:"
+          doctl account get --format "Email,Status,DropletLimit,FloatingIPLimit"
+
+      - name: List Existing Clusters
+        run: |
+          echo "🔍 Checking existing Kubernetes clusters..."
+          CLUSTERS=$(doctl kubernetes cluster list --format "Name,Status,Region,Version,NodePools" --no-header)
+          
+          if [ -z "$CLUSTERS" ]; then
+            echo "❌ No Kubernetes clusters found"
+            echo ""
+            echo "🛠️ This means:"
+            echo "1. No clusters have been created yet"
+            echo "2. The infrastructure provisioning job failed"
+            echo "3. Or clusters were deleted"
+          else
+            echo "✅ Found clusters:"
+            echo "$CLUSTERS"
+            echo ""
+            
+            # Check specifically for banking-app-k8s
+            if echo "$CLUSTERS" | grep -q "banking-app-k8s"; then
+              echo "✅ banking-app-k8s cluster exists!"
+              
+              # Get cluster details
+              echo ""
+              echo "📊 Cluster details:"
+              doctl kubernetes cluster get banking-app-k8s
+              
+              # Try to get kubeconfig
+              echo ""
+              echo "🔧 Testing kubeconfig access..."
+              doctl kubernetes cluster kubeconfig save banking-app-k8s
+              kubectl cluster-info
+              kubectl get nodes
+            else
+              echo "❌ banking-app-k8s cluster NOT found"
+              echo ""
+              echo "🛠️ Available clusters:"
+              echo "$CLUSTERS"
+            fi
+          fi
+
+      - name: Check Recent Droplets
+        run: |
+          echo "🔍 Checking recent droplets (cluster nodes)..."
+          DROPLETS=$(doctl compute droplet list --format "Name,Status,Region,Size,PublicIPv4" --no-header)
+          
+          if [ -z "$DROPLETS" ]; then
+            echo "❌ No droplets found"
+          else
+            echo "✅ Found droplets:"
+            echo "$DROPLETS"
+          fi
+
+      - name: Check OpenTofu State (if exists)
+        run: |
+          echo "🔍 Checking for OpenTofu state..."
+          if [ -f "infra/terraform.tfstate" ]; then
+            echo "✅ Found local terraform state"
+            cd infra
+            tofu show -json terraform.tfstate | jq '.values.root_module.resources[] | select(.type == "digitalocean_kubernetes_cluster") | {name: .values.name, status: .values.status}'
+          else
+            echo "❌ No local terraform state found"
+            echo "This is normal for GitHub Actions (state is not persisted)"
+          fi
+
+      - name: Test Infrastructure Creation
+        run: |
+          echo "🧪 Testing infrastructure creation (dry run)..."
+          cd infra
+          
+          # Use simple configuration
+          cp simple.tf main.tf
+          
+          # Initialize
+          tofu init
+          
+          # Plan only (don't apply)
+          tofu plan -var="do_token=${{ secrets.DIGITALOCEAN_TOKEN }}" \
+                    -var="cluster_name=banking-app-k8s-test" \
+                    -var="region=nyc1" \
+                    -var="node_count=1"
+          
+          echo "✅ OpenTofu configuration is valid"
+
+      - name: Recommendations
+        run: |
+          echo "💡 Troubleshooting Recommendations:"
+          echo "=================================="
+          echo ""
+          echo "If no clusters exist:"
+          echo "1. Run the 'Simple Banking App Deployment' workflow"
+          echo "2. Or manually run the infrastructure provisioning"
+          echo "3. Check DigitalOcean account limits and billing"
+          echo ""
+          echo "If clusters exist but kubectl fails:"
+          echo "1. Check cluster status in DigitalOcean console"
+          echo "2. Verify cluster is in 'running' state"
+          echo "3. Try recreating the cluster"
+          echo ""
+          echo "Common issues:"
+          echo "- Account billing issues"
+          echo "- Resource limits exceeded"
+          echo "- Region availability issues"
+          echo "- Network connectivity problems"
+          echo ""
+          echo "🚀 Quick fix: Run 'Simple Banking App Deployment' workflow"
+          echo "   This will create everything from scratch step by step"
