@@ -47,16 +47,11 @@ provider "digitalocean" {
   token = var.do_token
 }
 
-# Get available Kubernetes versions
-data "digitalocean_kubernetes_versions" "available" {
-  version_prefix = "1.28."
-}
-
 # Create the Kubernetes cluster
 resource "digitalocean_kubernetes_cluster" "banking_cluster" {
   name    = var.cluster_name
   region  = var.region
-  version = data.digitalocean_kubernetes_versions.available.latest_version
+  version = "1.33.1-do.2"  # Latest stable version
 
   # Node pool configuration
   node_pool {
