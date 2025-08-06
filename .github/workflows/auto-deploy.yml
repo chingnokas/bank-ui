@@ -1,9 +1,7 @@
-name: Auto Deploy Banking App
+name: Auto Deploy Banking App (DISABLED)
 
 on:
-  push:
-    branches: [main]
-  workflow_dispatch:
+  workflow_dispatch:  # Only manual trigger, disabled auto push
 
 jobs:
   deploy-banking-app:
@@ -54,56 +52,6 @@ jobs:
             fi
           else
             echo "❌ No cluster found, creating..."
-            
-            # Create inline configuration to avoid file conflicts
-            cat > deploy.tf << 'EOF'
-          variable "do_token" {
-            description = "DigitalOcean API Token"
-            type        = string
-            sensitive   = true
-          }
-
-          terraform {
-            required_version = ">= 1.0"
-            required_providers {
-              digitalocean = {
-                source  = "digitalocean/digitalocean"
-                version = "~> 2.34"
-              }
-            }
-          }
-
-          provider "digitalocean" {
-            token = var.do_token
-          }
-
-          data "digitalocean_kubernetes_versions" "available" {
-            version_prefix = "1.28."
-          }
-
-          resource "digitalocean_kubernetes_cluster" "banking_cluster" {
-            name    = "banking-app-k8s"
-            region  = "nyc1"
-            version = data.digitalocean_kubernetes_versions.available.latest_version
-
-            node_pool {
-              name       = "banking-app-k8s-worker-pool"
-              size       = "s-2vcpu-4gb"
-              node_count = 2
-              auto_scale = true
-              min_nodes  = 1
-              max_nodes  = 5
-            }
-
-            maintenance_policy {
-              start_time = "04:00"
-              day        = "sunday"
-            }
-
-            auto_upgrade = true
-            surge_upgrade = true
-          }
-          EOF
             
             echo "Initializing OpenTofu..."
             tofu init
