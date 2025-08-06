@@ -8,10 +8,6 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME_FRONTEND: chingnokas/cg-bank
-  IMAGE_NAME_BACKEND: chingnokas/cg-backbank
-  DIGITALOCEAN_TOKEN: ${{ secrets.DIGITALOCEAN_TOKEN }}
-  KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_DATA }}
 
 jobs:
   # Detect changes to determine what needs to be built/deployed
@@ -140,12 +136,12 @@ jobs:
           - component: frontend
             dockerfile: frontend/Dockerfile
             context: frontend
-            image: ${{ env.IMAGE_NAME_FRONTEND }}
+            image: chingnokas/cg-bank
             condition: ${{ needs.detect-changes.outputs.frontend == 'true' }}
           - component: backend
             dockerfile: backend/Dockerfile
             context: backend
-            image: ${{ env.IMAGE_NAME_BACKEND }}
+            image: chingnokas/cg-backbank
             condition: ${{ needs.detect-changes.outputs.backend == 'true' }}
     steps:
       - uses: actions/checkout@v4
