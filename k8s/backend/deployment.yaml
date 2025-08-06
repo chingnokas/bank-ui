@@ -47,15 +47,13 @@ spec:
           protocol: TCP
         env:
         - name: DATABASE_URL
-          valueFrom:
-            secretKeyRef:
-              name: banking-secrets
-              key: database-url
+          value: "postgresql://bankuser:bankpass123@postgres:5432/bankdb"
         - name: SECRET_KEY
-          valueFrom:
-            secretKeyRef:
-              name: banking-secrets
-              key: secret-key
+          value: "banking-secret-key-2024"
+        - name: DEBUG
+          value: "false"
+        - name: ALLOWED_HOSTS
+          value: "*"
         - name: ALLOWED_ORIGINS
           value: "http://banking-frontend,https://banking-frontend,http://localhost:3000"
         - name: APP_NAME

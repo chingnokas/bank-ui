@@ -80,9 +80,15 @@ jobs:
           
           # Base infrastructure
           kubectl apply -f k8s/namespace.yaml
-          kubectl apply -f k8s/secrets/banking-secrets.yaml
-          kubectl apply -f k8s/database/postgres.yaml
-          kubectl rollout status statefulset/postgres -n banking-app --timeout=300s
+          kubectl apply -f k8s/database/postgres-simple.yaml
+
+          # Wait for PostgreSQL to be ready (increased timeout)
+          echo "⏳ Waiting for PostgreSQL to be ready..."
+          kubectl rollout status statefulset/postgres -n banking-app --timeout=600s
+
+          # Verify PostgreSQL is working
+          kubectl wait --for=condition=ready pod -l app=postgres -n banking-app --timeout=300s
+          echo "✅ PostgreSQL is ready"
           
           # Build images
           docker buildx create --use
@@ -91,13 +97,13 @@ jobs:
           docker buildx build --platform linux/amd64 -t ghcr.io/chingnokas/cg-bank:latest --push frontend/
           docker buildx build --platform linux/amd64 -t ghcr.io/chingnokas/cg-backbank:latest --push backend/
           
-          # Registry secret
+          # Registry secret for pulling images
           kubectl create secret docker-registry registry-credentials \
             --docker-server=ghcr.io \
             --docker-username=${{ github.actor }} \
             --docker-password=${{ secrets.GITHUB_TOKEN }} \
             --namespace=banking-app \
-            --dry-run=client -o yaml | kubectl apply -f -
+            --dry-run=client -o yaml | kubectl apply -f - || true
           
           # Deploy apps
           kubectl apply -f k8s/backend/
