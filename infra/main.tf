@@ -51,7 +51,7 @@ provider "digitalocean" {
 resource "digitalocean_kubernetes_cluster" "banking_cluster" {
   name    = var.cluster_name
   region  = var.region
-  version = "1.33.1-do.2"  # Latest stable version
+  version = "1.30.2-do.0"  # Supported GA version; run `doctl kubernetes options versions` to update
 
   # Node pool configuration
   node_pool {
