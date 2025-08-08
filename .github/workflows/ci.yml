@@ -122,6 +122,14 @@ jobs:
           # NOTE: banking-secrets.yaml should be a template-safe file (no real secrets in repo)
           kubectl apply -f k8s/secrets/banking-secrets.yaml
 
+          # Create imagePullSecret for GHCR (GitHub Container Registry)
+          kubectl create secret docker-registry ghcr-secret \
+            --docker-server=ghcr.io \
+            --docker-username=${{ github.actor }} \
+            --docker-password=${{ secrets.GITHUB_TOKEN }} \
+            --namespace=banking-app \
+            --dry-run=client -o yaml | kubectl apply -f -
+
       - name: Deploy database
         run: |
           # Handle StatefulSet immutable field updates by deleting if it exists
@@ -138,8 +146,26 @@ jobs:
 
       - name: Deploy backend
         run: |
+          # Reduce replicas to 1 for easier debugging
           kubectl apply -f k8s/backend/
-          kubectl -n banking-app rollout status deployment/banking-backend --timeout=300s
+          kubectl -n banking-app patch deployment banking-backend -p '{"spec":{"replicas":1}}'
+
+          # Debug backend deployment issues
+          echo "Checking backend deployment status..."
+          kubectl -n banking-app get pods -l app=banking-backend
+          kubectl -n banking-app describe deployment banking-backend
+
+          # Check for common issues
+          echo "Checking for image pull issues..."
+          kubectl -n banking-app get events --sort-by='.lastTimestamp' | grep -i "pull\|image\|error" || true
+
+          # Wait for rollout with extended timeout
+          kubectl -n banking-app rollout status deployment/banking-backend --timeout=600s || {
+            echo "Backend deployment failed, showing pod logs..."
+            kubectl -n banking-app logs -l app=banking-backend --tail=50 || true
+            kubectl -n banking-app describe pods -l app=banking-backend || true
+            exit 1
+          }
 
       - name: Deploy frontend
         run: |
