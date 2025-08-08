@@ -121,11 +121,6 @@ metadata:
     app: banking-frontend
     component: frontend
     environment: production
-  annotations:
-    service.beta.kubernetes.io/do-loadbalancer-name: "banking-frontend-lb"
-    service.beta.kubernetes.io/do-loadbalancer-protocol: "http"
-    service.beta.kubernetes.io/do-loadbalancer-healthcheck-path: "/"
-    service.beta.kubernetes.io/do-loadbalancer-healthcheck-protocol: "http"
 spec:
   type: LoadBalancer
   ports:

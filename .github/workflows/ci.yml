@@ -221,6 +221,9 @@ jobs:
 
       - name: Deploy frontend
         run: |
+          echo "Deploying frontend resources..."
+
+          # Apply frontend deployment and other resources
           kubectl apply -f k8s/frontend/
 
           # Reduce replicas to 1 for easier debugging
