@@ -139,12 +139,43 @@ jobs:
           kubectl apply -f k8s/database/postgres-simple.yaml
 
           # Wait for postgres to be ready
-          kubectl -n banking-app rollout status statefulset/postgres --timeout=300s
+          echo "Waiting for postgres StatefulSet to be ready..."
+          kubectl -n banking-app rollout status statefulset/postgres --timeout=600s
 
           # Verify database connectivity
           echo "Testing database connection..."
-          kubectl -n banking-app wait --for=condition=ready pod -l app=postgres --timeout=60s
-          sleep 10  # Give postgres a moment to fully initialize
+          kubectl -n banking-app wait --for=condition=ready pod -l app=postgres --timeout=120s
+
+          # Give postgres time to fully initialize and test connection
+          echo "Waiting for postgres to fully initialize..."
+          sleep 30
+
+          # Test database connection
+          echo "Testing postgres connection..."
+          kubectl -n banking-app exec statefulset/postgres -- psql -U bankuser -d bankdb -c "SELECT 1 as test;" || {
+            echo "Database connection failed, showing postgres logs..."
+            kubectl -n banking-app logs -l app=postgres --tail=50
+            kubectl -n banking-app describe pods -l app=postgres
+            exit 1
+          }
+
+          echo "✅ Database is ready and accessible"
+
+      - name: Verify database before backend deployment
+        run: |
+          echo "Final database verification before backend deployment..."
+          echo "=== All resources in banking-app namespace ==="
+          kubectl -n banking-app get all -o wide
+          echo "=== Postgres pods ==="
+          kubectl -n banking-app get pods -l app=postgres -o wide
+          echo "=== Postgres service ==="
+          kubectl -n banking-app get svc postgres
+          echo "=== StatefulSet status ==="
+          kubectl -n banking-app get statefulset postgres -o wide
+
+          # Test database connection one more time
+          echo "=== Testing database connection ==="
+          kubectl -n banking-app exec statefulset/postgres -- psql -U bankuser -d bankdb -c "SELECT version();"
 
       - name: Deploy backend
         run: |
@@ -167,7 +198,9 @@ jobs:
           # Wait for rollout with extended timeout
           kubectl -n banking-app rollout status deployment/banking-backend --timeout=600s || {
             echo "Backend deployment failed, showing detailed diagnostics..."
-            echo "=== Pod Status ==="
+            echo "=== All Pods Status ==="
+            kubectl -n banking-app get pods -o wide
+            echo "=== Backend Pod Status ==="
             kubectl -n banking-app get pods -l app=banking-backend -o wide
             echo "=== Pod Events ==="
             kubectl -n banking-app get events --sort-by='.lastTimestamp' | grep banking-backend || true
@@ -178,7 +211,11 @@ jobs:
             echo "=== Pod Description ==="
             kubectl -n banking-app describe pods -l app=banking-backend || true
             echo "=== Database Connection Test ==="
-            kubectl -n banking-app exec -it deployment/postgres -- psql -U bankuser -d bankdb -c "SELECT 1;" || true
+            kubectl -n banking-app exec statefulset/postgres -- psql -U bankuser -d bankdb -c "SELECT 1;" || true
+            echo "=== Postgres Pod Status ==="
+            kubectl -n banking-app get pods -l app=postgres -o wide || true
+            echo "=== Backend Container Startup Command ==="
+            kubectl -n banking-app get pods -l app=banking-backend -o jsonpath='{.items[0].spec.containers[0].command}' || true
             exit 1
           }
 
