@@ -219,6 +219,12 @@ jobs:
             exit 1
           }
 
+          # Test backend connectivity before deploying frontend
+          echo "Testing backend API connectivity..."
+          kubectl -n banking-app exec statefulset/postgres -- curl -f http://banking-backend:8000/ || {
+            echo "⚠️ Backend API not accessible, but continuing with frontend deployment..."
+          }
+
       - name: Deploy frontend
         run: |
           echo "Deploying frontend resources..."
@@ -246,13 +252,29 @@ jobs:
             echo "Frontend deployment failed, showing detailed diagnostics..."
             echo "=== Frontend Pod Status ==="
             kubectl -n banking-app get pods -l app=banking-frontend -o wide
+
             echo "=== Frontend Pod Events ==="
             kubectl -n banking-app get events --sort-by='.lastTimestamp' | grep banking-frontend || true
+
             echo "=== Frontend Container Logs (current) ==="
             kubectl -n banking-app logs -l app=banking-frontend --tail=100 || true
+
             echo "=== Frontend Container Logs (previous) ==="
             kubectl -n banking-app logs -l app=banking-frontend --previous --tail=50 || true
+
+            echo "=== Individual Pod Logs ==="
+            for pod in $(kubectl -n banking-app get pods -l app=banking-frontend -o jsonpath='{.items[*].metadata.name}'); do
+              echo "--- Logs for pod: $pod ---"
+              kubectl -n banking-app logs "$pod" --tail=50 || true
+              echo "--- Previous logs for pod: $pod ---"
+              kubectl -n banking-app logs "$pod" --previous --tail=30 || true
+            done
+
             echo "=== Frontend Pod Description ==="
             kubectl -n banking-app describe pods -l app=banking-frontend || true
+
+            echo "=== Frontend Deployment Description ==="
+            kubectl -n banking-app describe deployment banking-frontend || true
+
             exit 1
           }
