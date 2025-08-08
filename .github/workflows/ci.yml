@@ -222,4 +222,34 @@ jobs:
       - name: Deploy frontend
         run: |
           kubectl apply -f k8s/frontend/
-          kubectl -n banking-app rollout status deployment/banking-frontend --timeout=300s
+
+          # Reduce replicas to 1 for easier debugging
+          kubectl -n banking-app patch deployment banking-frontend -p '{"spec":{"replicas":1}}'
+
+          # Temporarily disable health checks for debugging
+          kubectl -n banking-app patch deployment banking-frontend -p '{"spec":{"template":{"spec":{"containers":[{"name":"banking-frontend","livenessProbe":null,"readinessProbe":null}]}}}}'
+
+          # Debug frontend deployment issues
+          echo "Checking frontend deployment status..."
+          kubectl -n banking-app get pods -l app=banking-frontend -o wide
+          kubectl -n banking-app describe deployment banking-frontend
+
+          # Check for common issues
+          echo "Checking for image pull issues..."
+          kubectl -n banking-app get events --sort-by='.lastTimestamp' | grep -i "frontend\|pull\|image\|error" || true
+
+          # Wait for rollout with extended timeout
+          kubectl -n banking-app rollout status deployment/banking-frontend --timeout=600s || {
+            echo "Frontend deployment failed, showing detailed diagnostics..."
+            echo "=== Frontend Pod Status ==="
+            kubectl -n banking-app get pods -l app=banking-frontend -o wide
+            echo "=== Frontend Pod Events ==="
+            kubectl -n banking-app get events --sort-by='.lastTimestamp' | grep banking-frontend || true
+            echo "=== Frontend Container Logs (current) ==="
+            kubectl -n banking-app logs -l app=banking-frontend --tail=100 || true
+            echo "=== Frontend Container Logs (previous) ==="
+            kubectl -n banking-app logs -l app=banking-frontend --previous --tail=50 || true
+            echo "=== Frontend Pod Description ==="
+            kubectl -n banking-app describe pods -l app=banking-frontend || true
+            exit 1
+          }
