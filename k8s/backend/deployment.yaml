@@ -33,15 +33,13 @@ spec:
         prometheus.io/path: "/metrics"
     spec:
       serviceAccountName: banking-backend
-      imagePullSecrets:
-      - name: ghcr-secret
       securityContext:
         runAsNonRoot: true
         runAsUser: 65534
         fsGroup: 65534
       containers:
       - name: banking-backend
-        image: ghcr.io/chingnokas/cg-backbank:latest
+        image: chingnokas/cg-bank:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8000
