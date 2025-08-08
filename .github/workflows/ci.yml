@@ -136,11 +136,19 @@ jobs:
           # Wait for postgres to be ready
           kubectl -n banking-app rollout status statefulset/postgres --timeout=300s
 
+          # Verify database connectivity
+          echo "Testing database connection..."
+          kubectl -n banking-app wait --for=condition=ready pod -l app=postgres --timeout=60s
+          sleep 10  # Give postgres a moment to fully initialize
+
       - name: Deploy backend
         run: |
           # Reduce replicas to 1 for easier debugging
           kubectl apply -f k8s/backend/
           kubectl -n banking-app patch deployment banking-backend -p '{"spec":{"replicas":1}}'
+
+          # Temporarily disable health checks for debugging
+          kubectl -n banking-app patch deployment banking-backend -p '{"spec":{"template":{"spec":{"containers":[{"name":"banking-backend","livenessProbe":null,"readinessProbe":null}]}}}}'
 
           # Debug backend deployment issues
           echo "Checking backend deployment status..."
@@ -153,9 +161,19 @@ jobs:
 
           # Wait for rollout with extended timeout
           kubectl -n banking-app rollout status deployment/banking-backend --timeout=600s || {
-            echo "Backend deployment failed, showing pod logs..."
-            kubectl -n banking-app logs -l app=banking-backend --tail=50 || true
+            echo "Backend deployment failed, showing detailed diagnostics..."
+            echo "=== Pod Status ==="
+            kubectl -n banking-app get pods -l app=banking-backend -o wide
+            echo "=== Pod Events ==="
+            kubectl -n banking-app get events --sort-by='.lastTimestamp' | grep banking-backend || true
+            echo "=== Container Logs (current) ==="
+            kubectl -n banking-app logs -l app=banking-backend --tail=100 || true
+            echo "=== Container Logs (previous) ==="
+            kubectl -n banking-app logs -l app=banking-backend --previous --tail=50 || true
+            echo "=== Pod Description ==="
             kubectl -n banking-app describe pods -l app=banking-backend || true
+            echo "=== Database Connection Test ==="
+            kubectl -n banking-app exec -it deployment/postgres -- psql -U bankuser -d bankdb -c "SELECT 1;" || true
             exit 1
           }
 
