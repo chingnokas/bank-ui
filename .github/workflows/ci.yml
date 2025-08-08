@@ -122,6 +122,11 @@ jobs:
           # NOTE: banking-secrets.yaml should be a template-safe file (no real secrets in repo)
           kubectl apply -f k8s/secrets/banking-secrets.yaml
 
+          # Create missing ServiceAccounts that deployments expect
+          kubectl create serviceaccount banking-backend -n banking-app --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create serviceaccount banking-frontend -n banking-app --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create serviceaccount postgres -n banking-app --dry-run=client -o yaml | kubectl apply -f -
+
       - name: Deploy database
         run: |
           # Handle StatefulSet immutable field updates by deleting if it exists
