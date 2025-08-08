@@ -88,6 +88,11 @@ jobs:
 
       - name: Deploy database
         run: |
+          # Handle StatefulSet immutable field updates by deleting if it exists
+          if kubectl get statefulset postgres -n banking-app &>/dev/null; then
+            echo "Existing postgres StatefulSet found, deleting to avoid immutable field conflicts..."
+            kubectl delete statefulset postgres -n banking-app --wait=true
+          fi
           kubectl apply -f k8s/database/
 
       - name: Deploy backend
