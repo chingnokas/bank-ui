@@ -37,7 +37,7 @@ jobs:
         id: k8sver
         run: |
           # Get first available supported version (GA) from DigitalOcean
-          ver=$(doctl kubernetes options versions --format Slug --no-header | grep -E '^[0-9]+\.[0-9]+\.[0-9]+-do\.[0-9]+' | head -n1)
+          ver=$(doctl kubernetes options versions | grep -E '[0-9]+\.[0-9]+\.[0-9]+-do\.[0-9]+' | head -n1 | awk '{print $1}')
           if [ -z "$ver" ]; then
             echo "Failed to resolve a supported Kubernetes version" >&2
             exit 1
