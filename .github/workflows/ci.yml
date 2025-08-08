@@ -1,416 +1,89 @@
-name: Banking App CI/CD Pipeline
+name: Simple CI (OpenTofu + Kubernetes)
 
 on:
   push:
-    branches: [main, develop]
-  pull_request:
-    branches: [main]
+    branches: [ main ]
+  workflow_dispatch:
 
 env:
-  REGISTRY: ghcr.io
+  CLUSTER_NAME: banking-app-k8s
+  DO_REGION: nyc1
 
 jobs:
-  # Detect changes to determine what needs to be built/deployed
-  detect-changes:
+  provision-cluster:
+    name: Provision Kubernetes cluster (OpenTofu)
     runs-on: ubuntu-latest
-    outputs:
-      infrastructure: ${{ steps.changes.outputs.infrastructure }}
-      frontend: ${{ steps.changes.outputs.frontend }}
-      backend: ${{ steps.changes.outputs.backend }}
-      monitoring: ${{ steps.changes.outputs.monitoring }}
-      k8s: ${{ steps.changes.outputs.k8s }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - uses: dorny/paths-filter@v2
-        id: changes
-        with:
-          filters: |
-            infrastructure:
-              - 'infra/**'
-              - 'terraform/**'
-              - '.github/workflows/**'
-            frontend:
-              - 'frontend/**'
-              - 'Dockerfile.frontend'
-            backend:
-              - 'backend/**'
-              - 'Dockerfile.backend'
-            monitoring:
-              - 'k8s/monitoring/**'
-            k8s:
-              - 'k8s/**'
-
-  # Infrastructure provisioning with OpenTofu
-  provision-infrastructure:
-    runs-on: ubuntu-latest
-    needs: detect-changes
-    if: needs.detect-changes.outputs.infrastructure == 'true' || github.event_name == 'workflow_dispatch'
-    outputs:
-      cluster-endpoint: ${{ steps.cluster-info.outputs.endpoint }}
-      cluster-ca: ${{ steps.cluster-info.outputs.ca-certificate }}
-      kubeconfig-data: ${{ steps.cluster-info.outputs.kubeconfig-data }}
-    steps:
-      - uses: actions/checkout@v4
+      - name: Check required secrets
+        run: |
+          if [ -z "${{ secrets.DIGITALOCEAN_TOKEN }}" ]; then
+            echo "DIGITALOCEAN_TOKEN is not set in repo secrets" >&2
+            exit 1
+          fi
 
       - name: Setup OpenTofu
         uses: opentofu/setup-opentofu@v1
         with:
           tofu_version: 1.6.0
 
-      - name: Configure DigitalOcean CLI
+      - name: Install doctl (DigitalOcean CLI)
         uses: digitalocean/action-doctl@v2
         with:
           token: ${{ secrets.DIGITALOCEAN_TOKEN }}
 
-      - name: Check DigitalOcean Token
+      - name: Init/Plan/Apply infrastructure
+        working-directory: infra
         run: |
-          if [ -z "${{ secrets.DIGITALOCEAN_TOKEN }}" ]; then
-            echo "❌ DIGITALOCEAN_TOKEN secret is not set"
-            echo "Please add your DigitalOcean API token to GitHub secrets"
-            echo "Go to: https://github.com/${{ github.repository }}/settings/secrets/actions"
-            exit 1
-          else
-            echo "✅ DigitalOcean token is configured"
-          fi
+          tofu init -input=false
+          tofu plan -input=false -out=tfplan \
+            -var="do_token=${{ secrets.DIGITALOCEAN_TOKEN }}" \
+            -var="cluster_name=${{ env.CLUSTER_NAME }}" \
+            -var="region=${{ env.DO_REGION }}"
+          tofu apply -input=false -auto-approve tfplan
 
-      - name: Initialize OpenTofu
-        working-directory: ./infra
+      - name: Wait for cluster to be ready
         run: |
-          # Use simple configuration for initial deployment
-          cp simple.tf main.tf.backup
-          mv simple.tf main.tf
-          tofu init
-
-      - name: Plan Infrastructure
-        working-directory: ./infra
-        run: |
-          tofu plan -var="do_token=${{ secrets.DIGITALOCEAN_TOKEN }}" \
-                    -var="cluster_name=banking-app-k8s" \
-                    -var="region=nyc1" \
-                    -var="node_count=2" \
-                    -out=tfplan
-
-      - name: Apply Infrastructure
-        working-directory: ./infra
-        if: github.ref == 'refs/heads/main'
-        run: |
-          tofu apply -auto-approve tfplan
-
-      - name: Get Cluster Info and Setup Kubeconfig
-        id: cluster-info
-        if: github.ref == 'refs/heads/main'
-        run: |
-          # Get cluster credentials
-          doctl kubernetes cluster kubeconfig save banking-app-k8s
-
-          # Wait for cluster to be ready
-          echo "Waiting for cluster to be ready..."
+          doctl kubernetes cluster kubeconfig save "${{ env.CLUSTER_NAME }}"
+          kubectl cluster-info
+          kubectl get nodes -o wide
+          echo "Waiting for all nodes to be Ready..."
           kubectl wait --for=condition=Ready nodes --all --timeout=600s
 
-          # Verify cluster connectivity
-          kubectl cluster-info
-          kubectl get nodes
-
-          # Export cluster info
-          echo "endpoint=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')" >> $GITHUB_OUTPUT
-          echo "ca-certificate=$(kubectl config view --raw --minify --flatten -o jsonpath='{.clusters[0].cluster.certificate-authority-data}')" >> $GITHUB_OUTPUT
-
-          # Save kubeconfig for other jobs
-          KUBE_CONFIG_DATA=$(kubectl config view --raw --minify --flatten | base64 -w 0)
-          echo "kubeconfig-data=$KUBE_CONFIG_DATA" >> $GITHUB_OUTPUT
-
-  # Wait for infrastructure to be ready
-  verify-infrastructure:
+  deploy:
+    name: Deploy Kubernetes manifests
     runs-on: ubuntu-latest
-    needs: [detect-changes, provision-infrastructure]
-    if: needs.provision-infrastructure.result == 'success'
+    needs: provision-cluster
     steps:
-      - name: Configure DigitalOcean CLI
+      - uses: actions/checkout@v4
+
+      - name: Install doctl (DigitalOcean CLI)
         uses: digitalocean/action-doctl@v2
         with:
           token: ${{ secrets.DIGITALOCEAN_TOKEN }}
 
       - name: Configure kubectl
         run: |
-          # Get fresh kubeconfig from DigitalOcean
-          doctl kubernetes cluster kubeconfig save banking-app-k8s
-
-          # Verify cluster connectivity
-          kubectl cluster-info
-          kubectl get nodes
-          echo "✅ Cluster is ready and accessible"
-
-  # Handle case when infrastructure provisioning is skipped or fails
-  check-existing-infrastructure:
-    runs-on: ubuntu-latest
-    needs: [detect-changes, provision-infrastructure]
-    if: needs.detect-changes.outputs.infrastructure == 'false' && needs.provision-infrastructure.result != 'success'
-    outputs:
-      cluster-exists: ${{ steps.check.outputs.exists }}
-    steps:
-      - name: Configure DigitalOcean CLI
-        uses: digitalocean/action-doctl@v2
-        with:
-          token: ${{ secrets.DIGITALOCEAN_TOKEN }}
-
-      - name: Check for existing cluster
-        id: check
-        run: |
-          if doctl kubernetes cluster get banking-app-k8s &> /dev/null; then
-            echo "✅ Found existing cluster: banking-app-k8s"
-            echo "exists=true" >> $GITHUB_OUTPUT
-
-            # Test cluster access
-            doctl kubernetes cluster kubeconfig save banking-app-k8s
-            kubectl cluster-info
-            kubectl get nodes
-          else
-            echo "❌ No cluster found: banking-app-k8s"
-            echo "exists=false" >> $GITHUB_OUTPUT
-            echo ""
-            echo "🛠️ To fix this:"
-            echo "1. Add DIGITALOCEAN_TOKEN secret"
-            echo "2. Run 'Simple Banking App Deployment' workflow"
-            echo "3. Or manually create the cluster"
-          fi
-
-  # Build and push Docker images
-  build-images:
-    runs-on: ubuntu-latest
-    needs: [detect-changes, verify-infrastructure, check-existing-infrastructure]
-    if: |
-      always() &&
-      (needs.detect-changes.outputs.frontend == 'true' || needs.detect-changes.outputs.backend == 'true') &&
-      (needs.verify-infrastructure.result == 'success' || needs.check-existing-infrastructure.outputs.cluster-exists == 'true')
-    strategy:
-      matrix:
-        include:
-          - component: frontend
-            dockerfile: frontend/Dockerfile
-            context: frontend
-            image: chingnokas/cg-bank
-            condition: ${{ needs.detect-changes.outputs.frontend == 'true' }}
-          - component: backend
-            dockerfile: backend/Dockerfile
-            context: backend
-            image: chingnokas/cg-backbank
-            condition: ${{ needs.detect-changes.outputs.backend == 'true' }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        if: matrix.condition == 'true'
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to Container Registry
-        if: matrix.condition == 'true'
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata
-        if: matrix.condition == 'true'
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ matrix.image }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=sha,prefix={{branch}}-
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Build and push Docker image
-        if: matrix.condition == 'true'
-        uses: docker/build-push-action@v5
-        with:
-          context: ${{ matrix.context }}
-          file: ${{ matrix.dockerfile }}
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          platforms: linux/amd64,linux/arm64
-
-  # Deploy monitoring stack
-  deploy-monitoring:
-    runs-on: ubuntu-latest
-    needs: [detect-changes, verify-infrastructure]
-    if: needs.verify-infrastructure.result == 'success' && (needs.detect-changes.outputs.monitoring == 'true' || github.event_name == 'workflow_dispatch')
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Configure DigitalOcean CLI
-        uses: digitalocean/action-doctl@v2
-        with:
-          token: ${{ secrets.DIGITALOCEAN_TOKEN }}
-
-      - name: Configure kubectl
-        run: |
-          # Check if cluster exists
-          if ! doctl kubernetes cluster get banking-app-k8s &> /dev/null; then
-            echo "❌ Cluster 'banking-app-k8s' does not exist"
-            echo "Infrastructure provisioning may have failed"
-            exit 1
-          fi
-
-          # Get cluster credentials
-          doctl kubernetes cluster kubeconfig save banking-app-k8s
+          doctl kubernetes cluster kubeconfig save "${{ env.CLUSTER_NAME }}"
           kubectl cluster-info
 
-      - name: Deploy Prometheus
+      - name: Create namespace and base secrets
         run: |
-          kubectl apply -f k8s/monitoring/prometheus/
-          kubectl rollout status deployment/prometheus-server -n monitoring --timeout=300s
-
-      - name: Deploy Grafana
-        run: |
-          kubectl apply -f k8s/monitoring/grafana/
-          kubectl rollout status deployment/grafana -n monitoring --timeout=300s
-
-      - name: Configure Grafana Dashboards
-        run: |
-          kubectl apply -f k8s/monitoring/dashboards/
-
-  # Deploy Argo CD and configure applications
-  deploy-argocd:
-    runs-on: ubuntu-latest
-    needs: [detect-changes, verify-infrastructure, build-images]
-    if: needs.verify-infrastructure.result == 'success'
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Configure DigitalOcean CLI
-        uses: digitalocean/action-doctl@v2
-        with:
-          token: ${{ secrets.DIGITALOCEAN_TOKEN }}
-
-      - name: Configure kubectl
-        run: |
-          # Check if cluster exists
-          if ! doctl kubernetes cluster get banking-app-k8s &> /dev/null; then
-            echo "❌ Cluster 'banking-app-k8s' does not exist"
-            echo "Infrastructure provisioning may have failed"
-            exit 1
-          fi
-
-          # Get cluster credentials
-          doctl kubernetes cluster kubeconfig save banking-app-k8s
-          kubectl cluster-info
-
-      - name: Create Application Secrets
-        run: |
-          # Create namespaces
           kubectl apply -f k8s/namespace.yaml
-
-          # Apply application secrets (without sensitive data)
+          # NOTE: banking-secrets.yaml should be a template-safe file (no real secrets in repo)
           kubectl apply -f k8s/secrets/banking-secrets.yaml
 
-          # Create registry secret for pulling images
-          kubectl create secret docker-registry registry-credentials \
-            --docker-server=${{ env.REGISTRY }} \
-            --docker-username=${{ github.actor }} \
-            --docker-password=${{ secrets.GITHUB_TOKEN }} \
-            --namespace=banking-app \
-            --dry-run=client -o yaml | kubectl apply -f -
-
-      - name: Install Argo CD
+      - name: Deploy database
         run: |
-          kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
-          kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
-          kubectl rollout status deployment/argocd-server -n argocd --timeout=300s
+          kubectl apply -f k8s/database/
 
-      - name: Configure Argo CD Applications
+      - name: Deploy backend
         run: |
-          kubectl apply -f k8s/argocd/
+          kubectl apply -f k8s/backend/
+          kubectl -n banking-app rollout status deployment/banking-backend --timeout=300s
 
-      - name: Wait for Argo CD sync
+      - name: Deploy frontend
         run: |
-          # Install Argo CD CLI
-          curl -sSL -o argocd-linux-amd64 https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
-          sudo install -m 555 argocd-linux-amd64 /usr/local/bin/argocd
-          
-          # Get Argo CD admin password
-          ARGOCD_PASSWORD=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d)
-          
-          # Port forward and login
-          kubectl port-forward svc/argocd-server -n argocd 8080:443 &
-          sleep 10
-          argocd login localhost:8080 --username admin --password $ARGOCD_PASSWORD --insecure
-          
-          # Sync applications if app code changed
-          if [[ "${{ needs.detect-changes.outputs.frontend }}" == "true" || "${{ needs.detect-changes.outputs.backend }}" == "true" ]]; then
-            argocd app sync banking-app-frontend --timeout 300
-            argocd app sync banking-app-backend --timeout 300
-            argocd app wait banking-app-frontend --timeout 300
-            argocd app wait banking-app-backend --timeout 300
-          fi
-
-  # Health checks and notifications
-  post-deployment-checks:
-    runs-on: ubuntu-latest
-    needs: [deploy-argocd, deploy-monitoring]
-    if: always() && (needs.deploy-argocd.result == 'success' || needs.deploy-monitoring.result == 'success')
-    steps:
-      - name: Configure DigitalOcean CLI
-        uses: digitalocean/action-doctl@v2
-        with:
-          token: ${{ secrets.DIGITALOCEAN_TOKEN }}
-
-      - name: Configure kubectl
-        run: |
-          # Check if cluster exists
-          if ! doctl kubernetes cluster get banking-app-k8s &> /dev/null; then
-            echo "❌ Cluster 'banking-app-k8s' does not exist"
-            echo "Infrastructure provisioning may have failed"
-            exit 1
-          fi
-
-          # Get cluster credentials
-          doctl kubernetes cluster kubeconfig save banking-app-k8s
-          kubectl cluster-info
-
-      - name: Health Check - Frontend
-        run: |
-          kubectl wait --for=condition=available deployment/banking-frontend -n banking-app --timeout=300s
-          FRONTEND_URL=$(kubectl get svc banking-frontend -n banking-app -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-          curl -f http://$FRONTEND_URL/ || exit 1
-
-      - name: Health Check - Backend
-        run: |
-          kubectl wait --for=condition=available deployment/banking-backend -n banking-app --timeout=300s
-          BACKEND_URL=$(kubectl get svc banking-backend -n banking-app -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-          curl -f http://$BACKEND_URL:8000/api/ || exit 1
-
-      - name: Health Check - Database
-        run: |
-          kubectl wait --for=condition=ready pod -l app=postgres -n banking-app --timeout=300s
-
-      - name: Health Check - Monitoring
-        run: |
-          kubectl wait --for=condition=available deployment/prometheus-server -n monitoring --timeout=300s
-          kubectl wait --for=condition=available deployment/grafana -n monitoring --timeout=300s
-
-      - name: Get Service URLs
-        run: |
-          echo "## 🚀 Deployment Complete!" >> $GITHUB_STEP_SUMMARY
-          echo "### Service URLs:" >> $GITHUB_STEP_SUMMARY
-          echo "- **Frontend**: http://$(kubectl get svc banking-frontend -n banking-app -o jsonpath='{.status.loadBalancer.ingress[0].ip}')/" >> $GITHUB_STEP_SUMMARY
-          echo "- **Backend API**: http://$(kubectl get svc banking-backend -n banking-app -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8000/" >> $GITHUB_STEP_SUMMARY
-          echo "- **Grafana**: http://$(kubectl get svc grafana -n monitoring -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):3000/" >> $GITHUB_STEP_SUMMARY
-          echo "- **Prometheus**: http://$(kubectl get svc prometheus-server -n monitoring -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):9090/" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 🔐 Access Credentials:" >> $GITHUB_STEP_SUMMARY
-          echo "- **Grafana**: admin / BankingGrafana2024!" >> $GITHUB_STEP_SUMMARY
-          echo "- **Argo CD**: admin / \$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath=\"{.data.password}\" | base64 -d)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📊 Monitoring:" >> $GITHUB_STEP_SUMMARY
-          echo "- Application metrics available in Grafana" >> $GITHUB_STEP_SUMMARY
-          echo "- Alerts configured for critical services" >> $GITHUB_STEP_SUMMARY
-          echo "- Database performance monitoring enabled" >> $GITHUB_STEP_SUMMARY
+          kubectl apply -f k8s/frontend/
+          kubectl -n banking-app rollout status deployment/banking-frontend --timeout=300s
