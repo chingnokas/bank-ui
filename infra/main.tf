@@ -42,6 +42,12 @@ variable "node_size" {
   default     = "s-2vcpu-4gb"
 }
 
+variable "k8s_version" {
+  description = "Kubernetes version slug supported by DigitalOcean (e.g., 1.30.2-do.0)"
+  type        = string
+  default     = "1.30.2-do.0"
+}
+
 # Configure the DigitalOcean Provider
 provider "digitalocean" {
   token = var.do_token
@@ -51,7 +57,7 @@ provider "digitalocean" {
 resource "digitalocean_kubernetes_cluster" "banking_cluster" {
   name    = var.cluster_name
   region  = var.region
-  version = "1.30.2-do.0"  # Supported GA version; run `doctl kubernetes options versions` to update
+  version = var.k8s_version
 
   # Node pool configuration
   node_pool {

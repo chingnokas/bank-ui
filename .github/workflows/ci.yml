@@ -33,6 +33,17 @@ jobs:
         with:
           token: ${{ secrets.DIGITALOCEAN_TOKEN }}
 
+      - name: Determine supported Kubernetes version
+        id: k8sver
+        run: |
+          # Get first available supported version (GA) from DigitalOcean
+          ver=$(doctl kubernetes options versions --format Slug --no-header | grep -E '^[0-9]+\.[0-9]+\.[0-9]+-do\.[0-9]+' | head -n1)
+          if [ -z "$ver" ]; then
+            echo "Failed to resolve a supported Kubernetes version" >&2
+            exit 1
+          fi
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+
       - name: Init/Plan/Apply infrastructure
         working-directory: infra
         run: |
@@ -40,7 +51,8 @@ jobs:
           tofu plan -input=false -out=tfplan \
             -var="do_token=${{ secrets.DIGITALOCEAN_TOKEN }}" \
             -var="cluster_name=${{ env.CLUSTER_NAME }}" \
-            -var="region=${{ env.DO_REGION }}"
+            -var="region=${{ env.DO_REGION }}" \
+            -var="k8s_version=${{ steps.k8sver.outputs.version }}"
           tofu apply -input=false -auto-approve tfplan
 
       - name: Wait for cluster to be ready
