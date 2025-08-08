@@ -129,7 +129,12 @@ jobs:
             echo "Existing postgres StatefulSet found, deleting to avoid immutable field conflicts..."
             kubectl delete statefulset postgres -n banking-app --wait=true
           fi
-          kubectl apply -f k8s/database/
+
+          # Use the simple postgres configuration to avoid conflicts
+          kubectl apply -f k8s/database/postgres-simple.yaml
+
+          # Wait for postgres to be ready
+          kubectl -n banking-app rollout status statefulset/postgres --timeout=300s
 
       - name: Deploy backend
         run: |
