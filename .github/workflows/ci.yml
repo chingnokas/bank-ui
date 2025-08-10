@@ -177,11 +177,23 @@ jobs:
           echo "=== Testing database connection ==="
           kubectl -n banking-app exec statefulset/postgres -- psql -U bankuser -d bankdb -c "SELECT version();"
 
+          # Test with the exact connection string the backend will use
+          echo "=== Testing backend database connection string ==="
+          kubectl -n banking-app exec statefulset/postgres -- psql "postgresql://bankuser:bankpass123@postgres:5432/bankdb" -c "SELECT 1 as backend_test;" || {
+            echo "❌ Backend database connection string failed!"
+            echo "Testing if password is correct..."
+            kubectl -n banking-app exec statefulset/postgres -- psql -U bankuser -d bankdb -c "SELECT current_user;"
+          }
+
       - name: Deploy backend
         run: |
           # Reduce replicas to 1 for easier debugging
           kubectl apply -f k8s/backend/
           kubectl -n banking-app patch deployment banking-backend -p '{"spec":{"replicas":1}}'
+
+          # Show backend deployment configuration
+          echo "=== Backend Deployment Configuration ==="
+          kubectl -n banking-app get deployment banking-backend -o yaml | grep -A 20 "env:" || true
 
           # Temporarily disable health checks for debugging
           kubectl -n banking-app patch deployment banking-backend -p '{"spec":{"template":{"spec":{"containers":[{"name":"banking-backend","livenessProbe":null,"readinessProbe":null}]}}}}'
