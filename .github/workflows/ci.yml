@@ -183,7 +183,17 @@ jobs:
             echo "❌ Backend database connection string failed!"
             echo "Testing if password is correct..."
             kubectl -n banking-app exec statefulset/postgres -- psql -U bankuser -d bankdb -c "SELECT current_user;"
+            echo "Checking postgres service..."
+            kubectl -n banking-app get svc postgres -o wide
+            echo "Checking postgres pod network..."
+            kubectl -n banking-app get pods -l app=postgres -o wide
+            exit 1
           }
+
+          # Additional database readiness verification
+          echo "=== Verifying database is fully ready for connections ==="
+          kubectl -n banking-app exec statefulset/postgres -- pg_isready -h localhost -p 5432 -U bankuser
+          echo "✅ Database is fully ready for backend connections"
 
       - name: Deploy backend
         run: |
